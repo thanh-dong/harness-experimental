@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-06-16 - PR #4
+
+- feat(harness): mine implementation-note signals in propose (US-027) (@thanh-dong)
+- Merge commit: `b0dfa877e214302602d79f2d87de29f5ff2dda25`
+- Harness CLI release: `harness-cli-v0.1.11`
+- Changed files:
+  - `crates/harness-cli/src/application.rs`
+  - `crates/harness-cli/src/domain.rs`
+  - `crates/harness-cli/src/infrastructure.rs`
+  - `crates/harness-cli/src/interface.rs`
+  - `docs/CONTEXT_RULES.md`
+  - `docs/FEATURE_INTAKE.md`
+  - `docs/IMPROVEMENT_PROTOCOL.md`
+  - `docs/decisions/0007-story-signal-mining.md`
+  - `docs/stories/US-027-implementation-note-signals/design.md`
+  - `docs/stories/US-027-implementation-note-signals/execplan.md`
+  - `docs/stories/US-027-implementation-note-signals/implementation-notes.html`
+  - `docs/stories/US-027-implementation-note-signals/overview.md`
+  - `docs/stories/US-027-implementation-note-signals/validation.md`
+  - `docs/templates/implementation-notes.html`
+  - `scripts/schema/006-story-signal.sql`
+
 ## 2026-06-13 - PR #3
 
 - docs(harness): impact-analysis plugin on the inbound tool registry (US-026) (@thanh-dong)
