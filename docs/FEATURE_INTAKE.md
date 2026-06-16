@@ -82,6 +82,8 @@ Requirements:
 - Implement the smallest vertical slice when implementation exists.
 - Record or update proof status with `scripts/bin/harness-cli story add` and
   `scripts/bin/harness-cli story update`.
+- Keep a running `implementation-notes.html` in the story packet folder (see
+  [Implementation Notes](#implementation-notes)).
 
 ### High-Risk
 
@@ -98,6 +100,51 @@ Requirements:
   `docs/decisions/NNNN-*.md` file from `docs/templates/decision.md`, then add
   or refresh the durable row with `scripts/bin/harness-cli decision add`.
   Decision text in a trace is not a durable decision record.
+- Keep a running `implementation-notes.html` alongside `execplan.md` /
+  `overview.md` / `design.md` / `validation.md` (see
+  [Implementation Notes](#implementation-notes)).
+
+## Implementation Notes
+
+Normal and high-risk work keeps a running `implementation-notes.html` **inside
+the story packet folder** — never at the repo root. The story packet is the
+*contract*; this file is the working narrative that explains *how* the
+implementation got there. Tiny-lane work has none by definition: wanting one
+means the work is not tiny, so re-run the gate and re-lane.
+
+- **Normal lane** — next to the single story `.md`. If the story is currently a
+  bare file, create its folder and move the `.md` inside.
+- **High-risk lane** — alongside the `docs/templates/high-risk-story/` set.
+
+Start from `docs/templates/implementation-notes.html`. Keep it self-contained
+(inline `<style>`, no build, no dependencies) so it opens directly in a browser,
+and update it **as you go**, capturing:
+
+- **Design decisions** — choices made where the spec was ambiguous, and why.
+- **Deviations** — where you intentionally departed from the plan, and why.
+- **Tradeoffs** — alternatives considered and why you picked what you did.
+- **Open questions** — anything to confirm, each with your recommendation.
+
+Reference its full path in the final response. These four categories are also
+the durable self-improvement signal: when a category recurs across stories it is
+a harness gap, so record the recurring ones with
+`scripts/bin/harness-cli story signal add` (see `docs/IMPROVEMENT_PROTOCOL.md`)
+so `harness-cli propose` can mine them. The HTML is the human-readable narrative;
+the recorded signal is the machine-mineable subset.
+
+**Done gate (normal and high-risk).** A story is not done until its
+`implementation-notes.html` exists in the story packet folder and reflects the
+work as shipped. Before declaring done:
+
+- The file exists in the packet folder (never the repo root) and every section
+  matches reality — fix any section that no longer does before continuing.
+- Each recurring design decision, deviation, tradeoff, or open question is
+  recorded with `scripts/bin/harness-cli story signal add`.
+- The final response cites the file's full path.
+
+If the note is missing or stale when you are about to declare done, stop,
+backfill it, and say in one sentence that the gate was missed. A missing
+implementation note is an incomplete story, not a documentation nicety.
 
 ## Impact Analysis
 

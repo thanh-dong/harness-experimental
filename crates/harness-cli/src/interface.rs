@@ -8,14 +8,16 @@ use thiserror::Error;
 use crate::application::{
     BacklogAddInput, BacklogCloseInput, BrownfieldImportResult, DecisionAddInput, HarnessContext,
     HarnessService, InitResult, IntakeInput, InterventionAddInput, InterventionFilter,
-    MigrateResult, QueryTable, StoryAddInput, StoryUpdateInput, ToolRegisterInput, TraceInput,
+    MigrateResult, QueryTable, StoryAddInput, StorySignalAddInput, StorySignalFilter,
+    StoryUpdateInput, ToolRegisterInput, TraceInput,
 };
 use crate::domain::{
     normalize_capability, parse_optional_integer, parse_tool_args, proof_display,
     validate_responsibility, validate_tool_kind, BacklogFilter, BacklogRecord, BoolFlag,
     ContextScoreResult, CsvList, DecisionRecord, FrictionRecord, HarnessStats, ImprovementProposal,
-    InputType, IntakeRecord, InterventionRecord, RiskLane, StoryMatrixRecord, StoryVerifyAllResult,
-    ToolEntry, TraceQualityTier, TraceRecord, TraceScoreResult, RISK_LANE_HELP,
+    InputType, IntakeRecord, InterventionRecord, RiskLane, StoryMatrixRecord, StorySignalRecord,
+    StoryVerifyAllResult, ToolEntry, TraceQualityTier, TraceRecord, TraceScoreResult,
+    RISK_LANE_HELP,
 };
 use crate::infrastructure::ToolCheckResult;
 
@@ -116,6 +118,38 @@ enum StoryAction {
     },
     /// Verify every story, skipping stories without verify_command.
     VerifyAll,
+    /// Record an implementation-note signal for propose to mine.
+    Signal(SignalArgs),
+}
+
+#[derive(Args, Debug)]
+struct SignalArgs {
+    #[command(subcommand)]
+    action: SignalAction,
+}
+
+#[derive(Subcommand, Debug)]
+enum SignalAction {
+    #[command(
+        after_help = "Valid --type values: design_decision, deviation, tradeoff, open_question."
+    )]
+    Add(StorySignalAddArgs),
+}
+
+#[derive(Args, Debug)]
+struct StorySignalAddArgs {
+    #[arg(long = "type", value_name = "design_decision|deviation|tradeoff|open_question")]
+    signal_type: String,
+    #[arg(long)]
+    summary: String,
+    #[arg(long)]
+    story: Option<String>,
+    #[arg(long)]
+    trace: Option<String>,
+    #[arg(long)]
+    component: Option<String>,
+    #[arg(long)]
+    notes: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -389,6 +423,8 @@ enum QueryView {
     Tools(ToolsQueryArgs),
     /// Intervention records.
     Interventions(InterventionsQueryArgs),
+    /// Story signals from implementation notes.
+    Signals(SignalsQueryArgs),
     /// Summary counts.
     Stats,
     /// Run arbitrary SQL.
@@ -419,6 +455,14 @@ struct InterventionsQueryArgs {
     story: Option<String>,
     #[arg(long = "type")]
     intervention_type: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct SignalsQueryArgs {
+    #[arg(long)]
+    story: Option<String>,
+    #[arg(long = "type")]
+    signal_type: Option<String>,
 }
 
 #[derive(Debug, Error)]
@@ -503,6 +547,22 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                     std::process::exit(1);
                 }
             }
+            StoryAction::Signal(args) => match args.action {
+                SignalAction::Add(args) => {
+                    let id = service.add_story_signal(StorySignalAddInput {
+                        story_id: args.story,
+                        trace_id: parse_optional_integer(
+                            "story signal add: --trace",
+                            args.trace,
+                        )?,
+                        signal_type: args.signal_type,
+                        summary: args.summary,
+                        component: args.component,
+                        notes: args.notes,
+                    })?;
+                    println!("Story signal #{id} recorded.");
+                }
+            },
         },
         Command::Decision(args) => match args.action {
             DecisionAction::Add(args) => {
@@ -678,6 +738,12 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                     trace_id,
                     story_id: args.story,
                     intervention_type: args.intervention_type,
+                })?);
+            }
+            QueryView::Signals(args) => {
+                print_signals(&service.query_story_signals(StorySignalFilter {
+                    story_id: args.story,
+                    signal_type: args.signal_type,
                 })?);
             }
             QueryView::Stats => print_stats(&service.query_stats()?),
@@ -1269,6 +1335,26 @@ fn print_interventions(records: &[InterventionRecord]) {
             "description",
             "impact",
         ],
+        &rows,
+    );
+}
+
+fn print_signals(records: &[StorySignalRecord]) {
+    let rows = records
+        .iter()
+        .map(|record| {
+            vec![
+                record.id.to_string(),
+                record.created_at.clone(),
+                record.story_id.clone().unwrap_or_default(),
+                record.signal_type.clone(),
+                record.summary.clone(),
+                record.component.clone().unwrap_or_default(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    print_table(
+        &["id", "created_at", "story", "type", "summary", "component"],
         &rows,
     );
 }

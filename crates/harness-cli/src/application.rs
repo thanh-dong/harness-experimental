@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use crate::domain::{
     AuditResult, BacklogFilter, BacklogRecord, BoolFlag, ContextScoreResult, CsvList,
     DecisionRecord, FrictionRecord, HarnessStats, ImprovementProposal, InputType, IntakeRecord,
-    InterventionRecord, RiskLane, StoryMatrixRecord, StoryVerifyAllResult, StoryVerifyStatus,
-    ToolArgSpec, ToolEntry, TraceRecord, TraceScoreResult,
+    InterventionRecord, RiskLane, StoryMatrixRecord, StorySignalRecord, StoryVerifyAllResult,
+    StoryVerifyStatus, ToolArgSpec, ToolEntry, TraceRecord, TraceScoreResult,
 };
 use crate::infrastructure::{HarnessRepository, SqliteHarnessRepository, ToolCheckResult};
 
@@ -98,6 +98,22 @@ pub struct InterventionFilter {
     pub trace_id: Option<i64>,
     pub story_id: Option<String>,
     pub intervention_type: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct StorySignalAddInput {
+    pub story_id: Option<String>,
+    pub trace_id: Option<i64>,
+    pub signal_type: String,
+    pub summary: String,
+    pub component: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Default)]
+pub struct StorySignalFilter {
+    pub story_id: Option<String>,
+    pub signal_type: Option<String>,
 }
 
 #[derive(Debug)]
@@ -210,6 +226,13 @@ impl HarnessService {
         self.repository.add_intervention(input)
     }
 
+    pub fn add_story_signal(
+        &self,
+        input: StorySignalAddInput,
+    ) -> crate::infrastructure::Result<i64> {
+        self.repository.add_story_signal(input)
+    }
+
     pub fn record_trace(&self, input: TraceInput) -> crate::infrastructure::Result<i64> {
         self.repository.record_trace(input)
     }
@@ -269,6 +292,13 @@ impl HarnessService {
         filter: InterventionFilter,
     ) -> crate::infrastructure::Result<Vec<InterventionRecord>> {
         self.repository.query_interventions(filter)
+    }
+
+    pub fn query_story_signals(
+        &self,
+        filter: StorySignalFilter,
+    ) -> crate::infrastructure::Result<Vec<StorySignalRecord>> {
+        self.repository.query_story_signals(filter)
     }
 
     pub fn query_stats(&self) -> crate::infrastructure::Result<HarnessStats> {

@@ -21,7 +21,14 @@ The command is rule-based. It looks for:
 
 - repeated trace friction,
 - repeated intervention patterns,
+- repeated story signals (the mineable subset of `implementation-notes.html`,
+  recorded with `scripts/bin/harness-cli story signal add`; see decision 0007),
 - non-zero audit categories.
+
+Story signals carry the four implementation-note categories
+(`design_decision`, `deviation`, `tradeoff`, `open_question`). When the same
+signal recurs across stories (`>= 2`), `propose` reads it as a spec, plan, or
+template gap and emits a proposal attributed to `Task specification`.
 
 Each proposal includes title, component, evidence, predicted impact, risk,
 suggested action, validation plan, and confidence.

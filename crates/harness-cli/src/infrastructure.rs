@@ -10,16 +10,16 @@ use thiserror::Error;
 use crate::application::{
     BacklogAddInput, BacklogCloseInput, BrownfieldImportResult, DecisionAddInput,
     DecisionVerifyResult, HarnessContext, InitResult, IntakeInput, InterventionAddInput,
-    InterventionFilter, MigrateResult, QueryTable, StoryAddInput, StoryUpdateInput,
-    StoryVerifyResult, ToolRegisterInput, TraceInput,
+    InterventionFilter, MigrateResult, QueryTable, StoryAddInput, StorySignalAddInput,
+    StorySignalFilter, StoryUpdateInput, StoryVerifyResult, ToolRegisterInput, TraceInput,
 };
 use crate::domain::{
     compiled_tool_registry, normalize_token, score_context, score_trace, validate_tool_description,
     AuditFinding, AuditResult, BacklogFilter, BacklogRecord, ContextScoreResult,
     ContextScoreSource, DecisionRecord, FrictionRecord, HarnessStats, ImprovementProposal,
-    IntakeRecord, InterventionRecord, RiskLane, StoryMatrixRecord, StoryVerifyAllItem,
-    StoryVerifyAllResult, StoryVerifyStatus, ToolArgSpec, ToolEntry, TraceRecord, TraceScoreResult,
-    TraceScoreSource,
+    IntakeRecord, InterventionRecord, RiskLane, StoryMatrixRecord, StorySignalRecord,
+    StoryVerifyAllItem, StoryVerifyAllResult, StoryVerifyStatus, ToolArgSpec, ToolEntry,
+    TraceRecord, TraceScoreResult, TraceScoreSource,
 };
 
 pub type Result<T> = std::result::Result<T, HarnessInfraError>;
@@ -104,6 +104,8 @@ pub trait HarnessRepository {
         capability: Option<String>,
     ) -> Result<Vec<ToolEntry>>;
     fn query_interventions(&self, filter: InterventionFilter) -> Result<Vec<InterventionRecord>>;
+    fn add_story_signal(&self, input: StorySignalAddInput) -> Result<i64>;
+    fn query_story_signals(&self, filter: StorySignalFilter) -> Result<Vec<StorySignalRecord>>;
     fn query_stats(&self) -> Result<HarnessStats>;
     fn audit(&self) -> Result<AuditResult>;
     fn propose(&self, commit: bool) -> Result<Vec<ImprovementProposal>>;
@@ -831,6 +833,23 @@ impl HarnessRepository for SqliteHarnessRepository {
         Ok(connection.last_insert_rowid())
     }
 
+    fn add_story_signal(&self, input: StorySignalAddInput) -> Result<i64> {
+        let connection = self.open_existing()?;
+        connection.execute(
+            "INSERT INTO story_signal (story_id, trace_id, type, summary, component, notes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6);",
+            params![
+                input.story_id,
+                input.trace_id,
+                input.signal_type,
+                input.summary,
+                input.component,
+                input.notes,
+            ],
+        )?;
+        Ok(connection.last_insert_rowid())
+    }
+
     fn record_trace(&self, input: TraceInput) -> Result<i64> {
         let connection = self.open_existing()?;
         connection.execute(
@@ -1185,6 +1204,30 @@ impl HarnessRepository for SqliteHarnessRepository {
         collect_rows(rows)
     }
 
+    fn query_story_signals(&self, filter: StorySignalFilter) -> Result<Vec<StorySignalRecord>> {
+        let connection = self.open_existing()?;
+        let mut statement = connection.prepare(
+            "SELECT id, created_at, story_id, trace_id, type, summary, component, notes
+             FROM story_signal
+             WHERE (?1 IS NULL OR story_id = ?1)
+               AND (?2 IS NULL OR type = ?2)
+             ORDER BY id DESC;",
+        )?;
+        let rows = statement.query_map(params![filter.story_id, filter.signal_type], |row| {
+            Ok(StorySignalRecord {
+                id: row.get(0)?,
+                created_at: row.get(1)?,
+                story_id: row.get(2)?,
+                trace_id: row.get(3)?,
+                signal_type: row.get(4)?,
+                summary: row.get(5)?,
+                component: row.get(6)?,
+                notes: row.get(7)?,
+            })
+        })?;
+        collect_rows(rows)
+    }
+
     fn query_stats(&self) -> Result<HarnessStats> {
         let connection = self.open_existing()?;
         connection
@@ -1313,6 +1356,26 @@ impl HarnessRepository for SqliteHarnessRepository {
                 risk: "normal".to_owned(),
                 suggested_action: "Clarify the relevant operating rule or validation gate that would have caught this earlier.".to_owned(),
                 validation_plan: "Future interventions of this type should decrease after the rule change.".to_owned(),
+                confidence: confidence_for_count(count),
+                committed_backlog_id: None,
+            });
+        }
+
+        for (signal_type, summary, count) in repeated_story_signals(&connection)? {
+            proposals.push(ImprovementProposal {
+                title: format!(
+                    "Recurring {} signal: {}",
+                    signal_type,
+                    short_title(&summary)
+                ),
+                component: "Task specification".to_owned(),
+                evidence: format!(
+                    "{count} stories recorded a similar {signal_type} signal: {summary}"
+                ),
+                predicted_impact: "Closing the spec, plan, or template gap behind this recurring signal.".to_owned(),
+                risk: "normal".to_owned(),
+                suggested_action: "Update the plan/intake template, story template, or docs so this design point is settled up front.".to_owned(),
+                validation_plan: "The signal should stop recurring in stories opened after the fix.".to_owned(),
                 confidence: confidence_for_count(count),
                 committed_backlog_id: None,
             });
@@ -1865,6 +1928,31 @@ fn repeated_interventions(connection: &Connection) -> Result<Vec<(String, usize)
     Ok(repeated_values(values))
 }
 
+fn repeated_story_signals(connection: &Connection) -> Result<Vec<(String, String, usize)>> {
+    let mut statement = connection.prepare(
+        "SELECT type, summary FROM story_signal
+         WHERE TRIM(summary) <> '';",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    let pairs = collect_rows(rows)?;
+    let mut grouped: Vec<(String, String, String, usize)> = Vec::new();
+    for (signal_type, summary) in pairs {
+        let key = format!("{}|{}", signal_type, normalize_token(&summary));
+        if let Some(existing) = grouped.iter_mut().find(|item| item.0 == key) {
+            existing.3 += 1;
+        } else {
+            grouped.push((key, signal_type, summary, 1));
+        }
+    }
+    Ok(grouped
+        .into_iter()
+        .filter(|(_, _, _, count)| *count >= 2)
+        .map(|(_, signal_type, summary, count)| (signal_type, summary, count))
+        .collect())
+}
+
 fn repeated_values(values: Vec<String>) -> Vec<(String, usize)> {
     let mut grouped: Vec<(String, String, usize)> = Vec::new();
     for value in values {
@@ -1935,7 +2023,8 @@ mod tests {
     use super::*;
     use crate::application::{
         BacklogAddInput, BacklogCloseInput, DecisionAddInput, IntakeInput, InterventionAddInput,
-        InterventionFilter, StoryAddInput, StoryUpdateInput, ToolRegisterInput, TraceInput,
+        InterventionFilter, StoryAddInput, StorySignalAddInput, StorySignalFilter, StoryUpdateInput,
+        ToolRegisterInput, TraceInput,
     };
     use crate::domain::{BacklogFilter, BoolFlag, CsvList, InputType, RiskLane, TraceQualityTier};
 
@@ -1972,7 +2061,7 @@ mod tests {
         assert_eq!(repository.query_stats().unwrap().intakes, 0);
         let connection = repository.open_existing().unwrap();
         let schema_version = SqliteHarnessRepository::schema_version(&connection).unwrap();
-        assert_eq!(schema_version, 5);
+        assert_eq!(schema_version, 6);
         let story_columns = story_columns(&connection);
         assert!(story_columns.contains(&"verify_command".to_owned()));
         assert!(story_columns.contains(&"last_verified_at".to_owned()));
@@ -1989,11 +2078,11 @@ mod tests {
         let result = repository.migrate().unwrap();
 
         assert_eq!(result.current_version, 1);
-        assert_eq!(result.applied, vec![2, 3, 4, 5]);
+        assert_eq!(result.applied, vec![2, 3, 4, 5, 6]);
         let connection = repository.open_existing().unwrap();
         assert_eq!(
             SqliteHarnessRepository::schema_version(&connection).unwrap(),
-            5
+            6
         );
         let story_columns = story_columns(&connection);
         assert!(story_columns.contains(&"verify_command".to_owned()));
@@ -2043,7 +2132,8 @@ mod tests {
         drop(connection);
 
         // Upgrade: migration 005 must infer kind from the command prefix.
-        assert_eq!(repository.migrate().unwrap().applied, vec![5]);
+        // (Migration 006 adds story_signal and rides along in the same upgrade.)
+        assert_eq!(repository.migrate().unwrap().applied, vec![5, 6]);
         let connection = repository.open_existing().unwrap();
         let kind_of = |name: &str| -> String {
             connection
@@ -2597,6 +2687,56 @@ mod tests {
             .iter()
             .all(|proposal| proposal.committed_backlog_id.is_some()));
         assert!(repository.query_backlog(BacklogFilter::Open).unwrap().len() >= 1);
+    }
+
+    #[test]
+    fn propose_mines_recurring_story_signals_only_when_they_repeat() {
+        let (_temp_dir, repository) = test_repository();
+        repository.init().unwrap();
+
+        let add_signal = |summary: &str| {
+            repository
+                .add_story_signal(StorySignalAddInput {
+                    story_id: None,
+                    trace_id: None,
+                    signal_type: "deviation".to_owned(),
+                    summary: summary.to_owned(),
+                    component: None,
+                    notes: None,
+                })
+                .unwrap();
+        };
+
+        // A single, non-recurring signal must not produce a proposal.
+        add_signal("plan omitted the migration step");
+        assert!(!repository
+            .propose(false)
+            .unwrap()
+            .iter()
+            .any(|proposal| proposal.title.starts_with("Recurring deviation")));
+
+        // A second matching signal crosses the >= 2 recurrence threshold.
+        add_signal("plan omitted the migration step");
+        let proposals = repository.propose(false).unwrap();
+        let recurring = proposals
+            .iter()
+            .find(|proposal| proposal.title.starts_with("Recurring deviation"))
+            .expect("recurring story signal should yield a proposal");
+        assert_eq!(recurring.component, "Task specification");
+        assert!(recurring.evidence.contains("2 stories"));
+        assert_eq!(recurring.confidence, "medium");
+
+        // Both signals are queryable, and the type filter works.
+        assert_eq!(
+            repository
+                .query_story_signals(StorySignalFilter {
+                    story_id: None,
+                    signal_type: Some("deviation".to_owned()),
+                })
+                .unwrap()
+                .len(),
+            2
+        );
     }
 
     #[test]

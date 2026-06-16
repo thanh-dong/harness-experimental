@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Implementation notes — US-027 Implementation note signals</title>
+<style>
+  body { font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2430; max-width: 860px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.4rem; border-bottom: 2px solid #e3e6ec; padding-bottom: .4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; color: #2c3550; }
+  code { background: #f1f3f7; padding: .1em .35em; border-radius: 4px; font-size: .9em; }
+  pre { background: #f6f8fa; border: 1px solid #e3e6ec; border-radius: 6px; padding: .8rem 1rem; overflow-x: auto; font-size: .85em; }
+  table { border-collapse: collapse; width: 100%; margin: .8rem 0; }
+  th, td { border: 1px solid #dadfe8; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #f1f3f7; }
+  .signal { display: inline-block; font-size: .75em; font-weight: 600; padding: .1em .5em; border-radius: 999px; background: #e8f0fe; color: #1a56db; margin-right: .4em; }
+</style>
+</head>
+<body>
+<h1>Implementation notes — US-027 Implementation note signals</h1>
+<p>
+Story: <code>docs/stories/US-027-implementation-note-signals/</code> ·
+Decision: <code>docs/decisions/0007-story-signal-mining.md</code> ·
+Intake: <code>#1</code> (high-risk; flags: Data model, Existing behavior, Public contracts)
+</p>
+<p>
+This note is itself the dogfood: it is the first <code>implementation-notes.html</code>
+written under the convention this story shipped (Move 1), and its categories below
+are the exact signal types <code>propose</code> now mines (Move 2).
+</p>
+
+<h2><span class="signal">design decision</span> Design decisions</h2>
+<table>
+  <tr><th>Decision</th><th>Why</th></tr>
+  <tr>
+    <td>Keep <code>propose</code> rule-based; record signals at <em>write</em> time
+    instead of parsing HTML.</td>
+    <td>The engine's value is auditability. Parsing free-form HTML would make
+    proposals non-deterministic — the failure mode <code>PHASE5.md</code> calls out.
+    So the agent emits a typed <code>story_signal</code> row; the engine only counts.</td>
+  </tr>
+  <tr>
+    <td>New <code>story_signal</code> table, not a reused one.</td>
+    <td><code>intervention</code> is an external correction; <code>harness_friction</code>
+    is per-run. A signal is the agent's own design narrative, typed by the four note
+    headings. Overloading either would blur both <code>propose</code> loops.</td>
+  </tr>
+  <tr>
+    <td>Mirror the <code>intervention</code> command path across all four layers.</td>
+    <td>Lowest-surprise integration: same <code>add</code>/<code>query</code> shape,
+    same <code>repeated_values</code> grouping, same <code>confidence_for_count</code>
+    rule, same <code>&gt;= 2</code> threshold. No new concepts in the engine.</td>
+  </tr>
+</table>
+
+<h2><span class="signal">deviation</span> Deviations</h2>
+<table>
+  <tr><th>Planned</th><th>Actual</th><th>Why</th></tr>
+  <tr>
+    <td>Add migration 006 and run tests.</td>
+    <td>Also had to edit three hardcoded <code>schema_version</code> assertions
+    (<code>init_creates_database_and_schema</code>, the migrate test, and the 005
+    backfill test).</td>
+    <td>Those tests assert the latest schema version <em>literally</em>
+    (<code>== 5</code>, <code>vec![2,3,4,5]</code>, <code>vec![5]</code>), so every
+    new migration breaks them. Fixed to 6 / <code>vec![..,6]</code> / <code>vec![5,6]</code>.
+    <b>This is a recurring harness friction</b> — recorded as a <code>deviation</code>
+    story signal, and <code>propose</code> already surfaced it as a "Task specification"
+    proposal (proof below). The self-evolution loop caught its own tax.</td>
+  </tr>
+</table>
+
+<h2><span class="signal">tradeoff</span> Tradeoffs &amp; accepted limits</h2>
+<table>
+  <tr><th>Item</th><th>Note</th></tr>
+  <tr>
+    <td>Recording is partly manual</td>
+    <td>The agent decides which note categories are <em>recurring enough</em> to
+    record as a signal. Accepted: mechanical "log every heading" would bury the
+    mineable signal in noise. The HTML stays the full narrative; the row is the subset.</td>
+  </tr>
+  <tr>
+    <td><code>story_id</code> keeps the <code>REFERENCES story(id)</code> FK</td>
+    <td>Stricter than <code>intervention.story_id</code> (which has no FK). It
+    rejected a reference to a non-existent story during the live demo — correct
+    behavior. Cross-story recurrence is still expressible via unlinked
+    (<code>NULL</code> story) signals, which <code>propose</code> groups purely by
+    <code>(type, summary)</code>.</td>
+  </tr>
+  <tr>
+    <td>Component is fixed to <code>Task specification</code></td>
+    <td>A recurring signal almost always implicates the spec/plan/template. Per-type
+    or agent-supplied component mapping is deferred (decision 0007 follow-up).</td>
+  </tr>
+</table>
+
+<h2><span class="signal">open question</span> Open questions</h2>
+<table>
+  <tr><th>Question</th><th>Recommendation</th></tr>
+  <tr>
+    <td>Should the recurring <code>schema_version</code> assertion friction be fixed
+    now (e.g. assert <code>&gt;= N</code> or derive from the migration list)?</td>
+    <td>Out of scope for US-027 — but it is exactly the kind of gap this story is
+    meant to surface. Recorded as a backlog item via the signal; let it accumulate
+    one more occurrence before changing the test pattern, per the validation plan.</td>
+  </tr>
+  <tr>
+    <td>Should <code>component</code> be agent-supplied per signal rather than fixed?</td>
+    <td>Defer until a few real stories show whether the fixed attribution misleads.
+    Tracked in decision 0007 Follow-Up.</td>
+  </tr>
+</table>
+
+<h2>Verification (live)</h2>
+<p>
+<code>cargo test -p harness-cli</code> = 28 passed; <code>cargo clippy -- -D warnings</code>
+= clean. Migration 006 applied to a fresh DB (schema_version 6) and rode along on an
+existing v5 DB via <code>migrate</code> (<code>Applied migration 6</code>), preserving
+the US-027 story and decision 0007. End-to-end: two <code>deviation</code> signals with
+the same summary made <code>propose</code> emit:
+</p>
+<pre>Proposal 1 (medium confidence):
+  Title: Recurring deviation signal: schema migration forced edits to hardcoded schema_version test
+  Component: Task specification
+  Evidence: 2 stories recorded a similar deviation signal: ...</pre>
+<p>
+A single signal produced no such proposal (unit test
+<code>propose_mines_recurring_story_signals_only_when_they_repeat</code>), proving the
+<code>&gt;= 2</code> gate.
+</p>
+</body>
+</html>

@@ -48,6 +48,7 @@ affect the selected story.
 | Document Or Source | Tiny | Normal | High-Risk |
 | --- | --- | --- | --- |
 | Files being changed | Must | Must | Must |
+| Story packet `implementation-notes.html` (write as you go) | Skip | Must | Must |
 | Adjacent files with same pattern | Should | Must | Must |
 | Relevant product docs | Skip if copy-only | Must if behavior changes | Must |
 | Relevant story packet | Skip if no story needed | Must | Must |
