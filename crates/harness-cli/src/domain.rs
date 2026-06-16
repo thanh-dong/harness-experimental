@@ -516,6 +516,24 @@ pub fn compiled_tool_registry() -> Vec<ToolEntry> {
             "Intervention recording",
             "0.1.8",
         ),
+        tool(
+            "harness-cli",
+            "story signal add",
+            "story signal add",
+            "Record a recurring implementation-note signal for propose to mine.",
+            &[("type", "enum", true), ("summary", "string", true)],
+            "Failure attribution",
+            "0.1.11",
+        ),
+        tool(
+            "harness-cli",
+            "query signals",
+            "query signals",
+            "Show recorded story signals from implementation notes.",
+            &[],
+            "Failure attribution",
+            "0.1.11",
+        ),
     ]
 }
 
@@ -1012,6 +1030,18 @@ pub struct InterventionRecord {
     pub description: String,
     pub source: String,
     pub impact: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct StorySignalRecord {
+    pub id: i64,
+    pub created_at: String,
+    pub story_id: Option<String>,
+    pub trace_id: Option<i64>,
+    pub signal_type: String,
+    pub summary: String,
+    pub component: Option<String>,
+    pub notes: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Implementation notes — US-XXX Story Title</title>
+<style>
+  body { font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2430; max-width: 860px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.4rem; border-bottom: 2px solid #e3e6ec; padding-bottom: .4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; color: #2c3550; }
+  code { background: #f1f3f7; padding: .1em .35em; border-radius: 4px; font-size: .9em; }
+  pre { background: #f6f8fa; border: 1px solid #e3e6ec; border-radius: 6px; padding: .8rem 1rem; overflow-x: auto; font-size: .85em; }
+  table { border-collapse: collapse; width: 100%; margin: .8rem 0; }
+  th, td { border: 1px solid #dadfe8; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #f1f3f7; }
+  .signal { display: inline-block; font-size: .75em; font-weight: 600; padding: .1em .5em; border-radius: 999px; background: #e8f0fe; color: #1a56db; margin-right: .4em; }
+</style>
+</head>
+<body>
+<h1>Implementation notes — US-XXX Story Title</h1>
+<p>
+Story: <code>docs/stories/US-XXX-.../story.md</code> ·
+Decision: <code>docs/decisions/NNNN-...md</code> (if any) ·
+Intake: <code>#N</code> (lane, flags)
+</p>
+
+<!--
+  Update this file AS YOU GO, not just at the end. The four headings below are
+  the durable self-improvement signal: when a heading recurs across stories it
+  is a harness gap. Record the recurring ones with
+  `scripts/bin/harness-cli story signal add` so `harness-cli propose` can mine
+  them (see docs/IMPROVEMENT_PROTOCOL.md).
+-->
+
+<h2><span class="signal">design decision</span> Design decisions</h2>
+<p>Choices made where the spec was ambiguous, and why. Prefer a table of
+rejected alternatives with the reason each was rejected.</p>
+
+<h2><span class="signal">deviation</span> Deviations</h2>
+<p>Where you intentionally departed from the plan, and why.</p>
+
+<h2><span class="signal">tradeoff</span> Tradeoffs &amp; accepted limits</h2>
+<p>Alternatives considered, what you picked, and the limits you accepted.</p>
+
+<h2><span class="signal">open question</span> Open questions</h2>
+<p>Anything to confirm — each with your recommendation.</p>
+</body>
+</html>
