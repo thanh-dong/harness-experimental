@@ -2023,8 +2023,8 @@ mod tests {
     use super::*;
     use crate::application::{
         BacklogAddInput, BacklogCloseInput, DecisionAddInput, IntakeInput, InterventionAddInput,
-        InterventionFilter, StoryAddInput, StorySignalAddInput, StorySignalFilter, StoryUpdateInput,
-        ToolRegisterInput, TraceInput,
+        InterventionFilter, StoryAddInput, StorySignalAddInput, StorySignalFilter,
+        StoryUpdateInput, ToolRegisterInput, TraceInput,
     };
     use crate::domain::{BacklogFilter, BoolFlag, CsvList, InputType, RiskLane, TraceQualityTier};
 

@@ -138,7 +138,10 @@ enum SignalAction {
 
 #[derive(Args, Debug)]
 struct StorySignalAddArgs {
-    #[arg(long = "type", value_name = "design_decision|deviation|tradeoff|open_question")]
+    #[arg(
+        long = "type",
+        value_name = "design_decision|deviation|tradeoff|open_question"
+    )]
     signal_type: String,
     #[arg(long)]
     summary: String,
@@ -551,10 +554,7 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                 SignalAction::Add(args) => {
                     let id = service.add_story_signal(StorySignalAddInput {
                         story_id: args.story,
-                        trace_id: parse_optional_integer(
-                            "story signal add: --trace",
-                            args.trace,
-                        )?,
+                        trace_id: parse_optional_integer("story signal add: --trace", args.trace)?,
                         signal_type: args.signal_type,
                         summary: args.summary,
                         component: args.component,
