@@ -113,8 +113,9 @@ On **Windows PowerShell**, run:
 
 ### Agent Self-Setup
 
-Hand this block to a coding agent to install and verify the harness on its own,
-from inside the target project directory:
+Hand this block to a coding agent to install, wire its tools, and verify the
+harness on its own, from inside the target project directory. The full one-pass
+playbook is [`docs/SETUP.md`](docs/SETUP.md).
 
 ```bash
 # 1. Install the harness files and the prebuilt CLI (use --claude for Claude Code)
@@ -123,15 +124,47 @@ curl -fsSL "https://raw.githubusercontent.com/thanh-dong/harness-repository-cc/m
 # 2. Create the durable database
 scripts/bin/harness-cli init
 
-# 3. Verify the install: CLI runs and the test matrix is queryable
+# 3. Wire the capability tools that are present (register block: docs/SETUP.md), then reconcile
+scripts/bin/harness-cli tool check
+scripts/bin/harness-cli query tools --summary
+
+# 4. Verify the install: CLI runs and the test matrix is queryable
 scripts/bin/harness-cli --version
 scripts/bin/harness-cli query matrix
 
-# 4. Read the entry points before changing code
-#    AGENTS.md, docs/HARNESS.md, docs/FEATURE_INTAKE.md, docs/ARCHITECTURE.md
+# 5. Read the entry points before changing code
+#    AGENTS.md, docs/HARNESS.md, docs/FEATURE_INTAKE.md, docs/GOAL_LOOP.md
 ```
 
 On Windows the CLI is called as `.\scripts\bin\harness-cli.exe`.
+
+### For Agents: Fresh Install Or Update
+
+The one-pass playbook for both paths is [`docs/SETUP.md`](docs/SETUP.md). Pick the
+branch that matches the target repo:
+
+- **Fresh install** — no `harness.db` yet: run the [Agent Self-Setup](#agent-self-setup)
+  block above, then `docs/SETUP.md` §_Wire the tools_ to register the equipped
+  capability providers (impact-analysis, `goal-loop-orchestration`, verification),
+  and §_Reconcile and verify_.
+- **Update an existing install** — already has the harness: use `--merge`, which
+  adds new files and **never overwrites, moves, or deletes anything you have** (your
+  `docs/product/`, `docs/stories/`, `docs/decisions/`, and `harness.db` are safe).
+  Do **not** use `--override` on a working repo — it moves your `docs/` into backup.
+
+  ```bash
+  curl -fsSL "https://raw.githubusercontent.com/thanh-dong/harness-repository-cc/main/scripts/install-harness.sh?$(date +%s)" \
+    | bash -s -- --merge --refresh-agent-shim --claude --yes
+  scripts/bin/harness-cli migrate     # additive, idempotent, data-preserving
+  scripts/bin/harness-cli tool check && scripts/calibrate-harness.sh
+  ```
+
+  Refreshing already-present policy docs and the full notes are in
+  `docs/SETUP.md` §_Updating an existing install_.
+
+- **Goal-loop skill (Okra)** — the `goal-loop-orchestration` provider is the Okra
+  `reverse-tornado-okr` skill; install it (plugin or project-local) per
+  `docs/SETUP.md` §_Install the goal-loop skill (Okra)_ so the capability resolves.
 
 ### Install Options
 

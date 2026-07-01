@@ -36,3 +36,23 @@ The score is capped at 100.
 
 Audit findings feed `scripts/bin/harness-cli propose`, which can turn repeated
 drift into proposed backlog items.
+
+## Calibration
+
+The audit detector and the `score-trace` scorer are themselves checked with a
+black-box calibrator that borrows Okra's golden pass/fail discipline: it drives
+the shipped binary against known-good and known-bad states and asserts the
+observable verdicts, so drift detection and trace scoring cannot silently rot.
+
+```bash
+scripts/calibrate-harness.sh                              # uses scripts/bin/harness-cli
+HARNESS_CLI=target/release/harness-cli scripts/calibrate-harness.sh   # a built binary
+```
+
+Each golden isolates one signal: a clean install must score entropy `0`; a single
+orphaned story must score `10`; an unverified story or decision `5`; a broken
+tool `8`; and the four trace tiers (`incomplete`/`minimal`/`standard`/`detailed`)
+must each be reached by the expected field depth. The calibrator exits non-zero
+if any verdict drifts from its golden, and runs in CI (`Harness CLI Release`
+verify job) after `cargo test`. Run it before merges and maturity claims,
+alongside `story verify-all`.

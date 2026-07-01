@@ -199,7 +199,8 @@ agent_shim_block() {
 <!-- HARNESS:BEGIN -->
 ## Harness
 
-This repo uses Harness. Before work, read:
+This repo uses Harness. First-time setup (install + wire the capability tools):
+`docs/SETUP.md`. Before work, read:
 
 - `README.md`
 - `docs/HARNESS.md`
@@ -207,6 +208,7 @@ This repo uses Harness. Before work, read:
 - `docs/ARCHITECTURE.md`
 - `docs/CONTEXT_RULES.md`
 - `docs/TOOL_REGISTRY.md`
+- `docs/GOAL_LOOP.md`
 - `scripts/bin/harness-cli query matrix`
 
 Use the Rust Harness CLI at `scripts/bin/harness-cli` as the main operational
@@ -825,13 +827,16 @@ docs/ARCHITECTURE.md
 docs/CONTEXT_RULES.md
 docs/FEATURE_INTAKE.md
 docs/GLOSSARY.md
+docs/GOAL_LOOP.md
 docs/HARNESS.md
 docs/HARNESS_AUDIT.md
 docs/HARNESS_BACKLOG.md
 docs/HARNESS_COMPONENTS.md
 docs/HARNESS_MATURITY.md
+docs/IMPACT_ANALYSIS.md
 docs/IMPROVEMENT_PROTOCOL.md
 docs/README.md
+docs/SETUP.md
 docs/TEST_MATRIX.md
 docs/TOOL_REGISTRY.md
 docs/TRACE_SPEC.md
@@ -855,10 +860,13 @@ docs/templates/high-risk-story/execplan.md
 docs/templates/high-risk-story/overview.md
 docs/templates/high-risk-story/validation.md
 scripts/README.md
+scripts/calibrate-harness.sh
 scripts/schema/001-init.sql
 scripts/schema/002-story-verify.sql
 scripts/schema/003-tool-registry.sql
 scripts/schema/004-intervention.sql
+scripts/schema/005-tool-extensions.sql
+scripts/schema/006-story-signal.sql
 .gitignore
 EOF
 

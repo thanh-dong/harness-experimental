@@ -5,7 +5,8 @@ Add project-specific agent instructions here.
 <!-- HARNESS:BEGIN -->
 ## Harness
 
-This repo uses Harness. Before work, read:
+This repo uses Harness. First-time setup (install + wire the capability tools):
+`docs/SETUP.md`. Before work, read:
 
 - `README.md`
 - `docs/HARNESS.md`
@@ -13,6 +14,7 @@ This repo uses Harness. Before work, read:
 - `docs/ARCHITECTURE.md`
 - `docs/CONTEXT_RULES.md`
 - `docs/TOOL_REGISTRY.md`
+- `docs/GOAL_LOOP.md`
 - `scripts/bin/harness-cli query matrix` on macOS/Linux, or `.\scripts\bin\harness-cli.exe query matrix` on Windows
 
 Use the Rust Harness CLI at `scripts/bin/harness-cli` on macOS/Linux or

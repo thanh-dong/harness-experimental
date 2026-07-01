@@ -1,0 +1,33 @@
+{
+  "frame_version": "v1",
+  "frame_hash": "computed-by-okra-store-on-real-run",
+  "objective": {
+    "metric_id": "checkout_retry_unit_proof",
+    "target": 1,
+    "unit": "proof_boolean",
+    "source": "harness.db story US-101 verify_command",
+    "read_method": "harness-cli story verify US-101 ; harness-cli query matrix --numeric"
+  },
+  "anti_goals": [
+    {
+      "metric_id": "existing_behavior_regression",
+      "threshold": 0,
+      "comparator": "==",
+      "type": "tripwire",
+      "derived_from_risk_flag": "existing behavior",
+      "source": "harness verify-all (US-100 baseline stays green)",
+      "read_method": "harness-cli story verify-all"
+    }
+  ],
+  "metric_contracts": [
+    {"metric_id": "checkout_retry_unit_proof", "source": "harness.db story US-101", "read_method": "harness-cli story verify US-101", "max_age": "current turn", "lag_window": "none (deterministic verify)"},
+    {"metric_id": "existing_behavior_regression", "source": "harness.db verify-all", "read_method": "harness-cli story verify-all", "max_age": "current turn", "lag_window": "none"}
+  ],
+  "action_envelope": {
+    "allowed_moves": ["edit checkout retry module", "harness-cli story add/update", "harness-cli trace"],
+    "forbidden": ["change auth boundary", "remove or weaken validation"],
+    "approval_gates": ["public contract change requires human confirmation (high-risk lane)"],
+    "human_ratification_boundary": "decision 0001-checkout-retry-frame"
+  },
+  "human_approval": {"ratified_by": "human", "decision_ref": "0001-checkout-retry-frame", "ratified": true}
+}

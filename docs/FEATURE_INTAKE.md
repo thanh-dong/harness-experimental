@@ -103,6 +103,12 @@ Requirements:
 - Keep a running `implementation-notes.html` alongside `execplan.md` /
   `overview.md` / `design.md` / `validation.md` (see
   [Implementation Notes](#implementation-notes)).
+- Do not accept high-risk work on the implementing agent's word alone. Require one
+  independent check before done: a deterministic proof (`story verify` /
+  `verify-all` / a passing test), or a second reviewer — human or a different
+  agent. Record it with `scripts/bin/harness-cli intervention add --type review
+  --source <human|agent|ci>`. A high-risk story with a `verify_command` that has
+  never passed is not done.
 
 ## Implementation Notes
 
@@ -161,6 +167,23 @@ and note the skip in the trace. A registered provider that scans as missing,
 stale, or drifted is not a skip: degrade per the Degraded Modes table in
 `docs/IMPACT_ANALYSIS.md` and set the `Weak proof` flag. If the analysis
 escalates the lane, re-classify before proceeding.
+
+## Goal Loop
+
+Some intake is not one task but a goal: an initiative or a metric-driven change
+that spans multiple stories toward one outcome. When the `goal-loop-orchestration`
+capability has a registered provider, `new_initiative` and metric-driven
+high-risk work can run as a self-correcting OKR loop with a measured anti-goal,
+described in `docs/GOAL_LOOP.md`. Check activation with
+`scripts/bin/harness-cli query tools --capability goal-loop-orchestration`. When
+no provider is registered, the capability is inactive: skip it and produce a flat
+story list. Tiny and normal task-at-a-time work skips it regardless.
+
+The loop does not ask the human to hand-author an anti-goal. The intake risk
+flags below are the candidate anti-goal categories; the agent metricizes them
+(metric, threshold, drift or tripwire), asks a few targeted tailoring questions,
+and the human ratifies the small final set. See the anti-goal mapping table in
+`docs/GOAL_LOOP.md`.
 
 ## Risk Checklist
 

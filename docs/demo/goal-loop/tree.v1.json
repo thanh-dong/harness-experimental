@@ -1,0 +1,18 @@
+{
+  "tree_version": "v1",
+  "frame_version": "v1",
+  "orchestrator": {
+    "owns": "objective checks, check-ins, the OKR board, and subagent steering",
+    "loop_rule": "steer until the objective metric reaches target (US-101 unit == 1) or a human or blocking flag stops the loop",
+    "reads": ["harness-cli story verify US-101", "harness-cli story verify-all", "harness-cli query matrix --numeric"]
+  },
+  "dkrs": [
+    {"id": "DKR-1", "probe": "which failure mode makes checkout retries drop requests?", "decision_unlocked": "whether to fund the retry PKR or re-aim", "risk_reduced": "existing-behavior regression risk", "budget": "2 turns", "confidence_output": "P(retry fixes drop) with evidence", "learning_checkpoint_required_before": "promoting candidate CKR or PKR"}
+  ],
+  "ckrs": [
+    {"id": "CKR-1", "contribution": "retry success rate", "metric": "retry_success_rate", "note": "measurable context, not a worker job", "discovery_delivery_balance": "discovery: DKR-1 finds the drop cause; delivery: PKR-1 after the checkpoint"}
+  ],
+  "pkrs": [
+    {"id": "PKR-1", "story": "US-101", "task": "implement checkout retry", "read_method": "harness-cli story verify US-101", "progress_signals": ["off-track", "quality drift", "stale metric"]}
+  ]
+}

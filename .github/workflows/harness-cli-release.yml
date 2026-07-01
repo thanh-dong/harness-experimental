@@ -47,10 +47,16 @@ jobs:
       - name: Run tests
         run: cargo test --workspace
 
+      - name: Calibrate audit and score-trace (black-box)
+        run: |
+          cargo build --release -p harness-cli
+          HARNESS_CLI=target/release/harness-cli scripts/calibrate-harness.sh
+
       - name: Check shell scripts
         run: |
           bash -n scripts/install-harness.sh
           bash -n scripts/build-harness-cli-release.sh
+          bash -n scripts/calibrate-harness.sh
 
   build:
     name: Build ${{ matrix.platform }}

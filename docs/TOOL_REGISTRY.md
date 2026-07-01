@@ -56,7 +56,15 @@ scripts/bin/harness-cli tool register --name c3 --kind skill \
   --capability impact-analysis --scan ".c3" --command "skill:c3" \
   --description "Component model and drift audit (Claude skill)" \
   --responsibility Verification
+scripts/bin/harness-cli tool register --name reverse-tornado-okr --kind skill \
+  --capability goal-loop-orchestration --scan ".claude/skills/reverse-tornado-okr" \
+  --command "skill:reverse-tornado-okr" \
+  --description "Run a goal as a self-correcting OKR loop with anti-goal guardrails" \
+  --responsibility "Task specification"
 ```
+
+The goal-loop provider runs an initiative as a measured OKR loop; see
+`docs/GOAL_LOOP.md` for when it activates and how the anti-goal is derived.
 
 Remove a tool with:
 
@@ -128,7 +136,7 @@ one; coin new ones in kebab-case:
 
 ```
 impact-analysis · deploy-verification · coverage · security-scan
-performance-benchmark · documentation-lookup
+performance-benchmark · documentation-lookup · goal-loop-orchestration
 ```
 
 ## Inspecting The Registry
