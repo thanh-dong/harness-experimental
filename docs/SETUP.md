@@ -10,10 +10,16 @@ the core works with zero tools registered.
 ```bash
 curl -fsSL "https://raw.githubusercontent.com/thanh-dong/harness-repository-cc/main/scripts/install-harness.sh?$(date +%s)" | bash -s -- --claude --yes
 scripts/bin/harness-cli init
+git add .harness/events .gitignore .gitattributes && git commit -m "chore: init harness event log"
 ```
 
 `--claude` imports the harness context into every Claude Code session. Drop it for
 other agents. Windows: `scripts/bin/harness-cli.exe`.
+
+The durable layer is a git-tracked event log at `.harness/events/`; `init`
+leaves a fresh repo event-backed from genesis, so **commit `.harness/events/`**
+so teammates inherit team state. `harness.db` is a rebuilt cache and stays
+gitignored. Full install/migration/collaboration reference: `docs/EVENT_LOG.md`.
 
 **While this fork is private**, the anonymous curl lines here and in the update
 section return 404. Use the authenticated flow from a `gh`-logged-in machine:
@@ -123,10 +129,17 @@ curl -fsSL "https://raw.githubusercontent.com/thanh-dong/harness-repository-cc/m
   | bash -s -- --merge --refresh-agent-shim --claude --yes
 
 # 2. Apply new schema — additive and idempotent (adds tool kind/capability/scan
-#    columns and the story_signal table; existing rows and data are preserved).
+#    columns, story_signal, and schema v7: ULID ids + event-log cache tables;
+#    existing rows and data are preserved).
 scripts/bin/harness-cli migrate
 
-# 3. Wire the newly available capabilities, then verify (see "Wire the tools").
+# 3. Cut the durable layer over to the git-tracked event log (one-time, proven:
+#    verifies row-count + content-hash equality before writing; backs up the old
+#    DB). Skip if already event-backed. Full detail: docs/EVENT_LOG.md.
+scripts/bin/harness-cli migrate-to-events
+git add .harness/events docs/TEST_MATRIX.md docs/HARNESS_BACKLOG.md docs/decisions/README.md
+
+# 4. Wire the newly available capabilities, then verify (see "Wire the tools").
 scripts/bin/harness-cli tool check
 scripts/bin/harness-cli query tools --summary
 scripts/calibrate-harness.sh

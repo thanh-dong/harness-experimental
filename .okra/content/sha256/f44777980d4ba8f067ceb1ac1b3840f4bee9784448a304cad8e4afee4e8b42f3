@@ -1,0 +1,73 @@
+{
+  "dkr_id": "DKR-3",
+  "decision_target": "migrated_row_loss == 0 (tripwire) — prove/refute before any migrate-to-events PKR is promoted",
+  "evidence": [
+    {
+      "claim": "The live v6 harness.db holds exactly the durable-8 tables plus two machine-local meta tables; all durable tables populated",
+      "source": "sqlite3 row counts on scratchpad/dkr-3/harness_orig.db (copy of repo harness.db)",
+      "numbers": "intake=4, story=2, decision=2, backlog=2, trace=4, tool=1, intervention=1, story_signal=4 (durable-8 total 20 rows); machine-local: schema_version=6, sqlite_sequence=5 rows"
+    },
+    {
+      "claim": "Migration synthesizes one genesis event per durable row, writer='migration', original created_at preserved as recorded_at, op per spec op-names",
+      "source": "scratchpad/dkr-3/dryrun.py migrate(); events_run1.jsonl",
+      "numbers": "20 genesis events; ops = intake.record, story.add, decision.add, backlog.add, trace.record, tool.register, intervention.add, signal.add"
+    },
+    {
+      "claim": "PER-TABLE VERIFY, original DB vs cache rebuilt purely from events — row counts equal AND content hashes equal (sha256 over canonically-ordered/serialized rows)",
+      "source": "scratchpad/dkr-3/dryrun.py compare() vs harness_orig.db",
+      "numbers": "table | rows o/r | count== | full-hash== | durable-hash==  ::  intake 4/4 T T T | story 2/2 T T T | decision 2/2 T T T | backlog 2/2 T T T | trace 4/4 T T T | tool 1/1 T FALSE T (excl status,checked_at) | intervention 1/1 T T T | story_signal 4/4 T T T"
+    },
+    {
+      "claim": "The ONLY full-hash mismatch (tool) is isolated to the two machine-local scan columns the spec says must never be logged; every durable registration column is byte-identical",
+      "source": "sqlite3 diff of tool row: original vs rebuilt_1.db",
+      "numbers": "status: 'present' -> 'unknown' (schema default); checked_at: '2026-07-02 04:40:09' -> NULL. name/provider/command/args/responsibility/since/kind/capability/scan_target all identical"
+    },
+    {
+      "claim": "Migration is byte-idempotent on re-run against the same input (deterministic event_id + sorted keys)",
+      "source": "events_run1.jsonl vs events_run2.jsonl byte compare",
+      "numbers": "run1==run2 bytes = True; events sha256 = 64a95f378a3d733454190ffd2d26d3669b61a6c6bc97e3c51795c8cfdf03ea4f"
+    },
+    {
+      "claim": "Replay is deterministic — two independent rebuilds produce identical dumps",
+      "source": "dryrun.py dumphash(rebuilt_1) vs dumphash(rebuilt_2)",
+      "numbers": "both = 7bdad7179b3a2c48638ed7afb88933b6b095ae5be220508462f33574165c54e6"
+    },
+    {
+      "claim": "Original integer autoincrement ids are preserved losslessly in payload.id for int-id tables",
+      "source": "example backlog.add genesis event in dryrun.py output",
+      "numbers": "backlog row payload.id = 1 (original integer); int-id tables = intake, backlog, trace, intervention, story_signal"
+    }
+  ],
+  "questions_answered": [
+    "Does the spec's migration contract reproduce every durable row byte-equivalently? YES for 8/8 tables on count + content hash, once machine-local scan columns are correctly excluded from the tool table.",
+    "Is migration idempotent? YES — deterministic genesis event ids make re-run byte-identical and rebuild-identical.",
+    "Which tables are durable vs machine-local? Durable-8 = intake/story/decision/backlog/trace/tool/intervention/story_signal. Machine-local = schema_version, sqlite_sequence (both rebuild artifacts of the cache, not team state), plus tool.status and tool.checked_at scan columns.",
+    "How are integer ids preserved so nothing is lost when they later become ULIDs? Keep the original integer under payload.id; genesis rebuild reinserts the original integer, so the hash-equality proof runs against the true old ids. ULID assignment is a forward-write concern, not a genesis concern."
+  ],
+  "questions_unanswered": [
+    "Content-hash canonicalization is my choice (JSON of column-ordered rows, PK-sorted). The real migrate-to-events must fix ONE canonical hash spec (column order, NULL vs '' distinction, float/text affinity, text encoding) or writer/rebuild will disagree. My dry-run confirms equality under one such scheme; it does not bless the production scheme.",
+    "SQLite type affinity edge cases were not stress-tested: this DB has no REAL columns and no bytes/BLOB values, so float and blob round-trip were not exercised. duration_seconds/token_estimate (INTEGER) were NULL/absent in the sample.",
+    "Whether schema_version should be re-seeded by rebuild (it is a migration artifact) or carried — out of my assignment; rebuild recreates the durable-8 schema from the old DB's DDL, itself a judgment call the PKR must pin (ship canonical schema in the CLI vs snapshot old DDL)."
+  ],
+  "confidence_update": "P(migrated_row_loss == 0 achievable with this approach) ~ 0.9. High because 8/8 tables round-trip exactly on real data with the only diff being intentionally-excluded machine-local columns. Held back from ~1.0 because production hash-canonicalization and float/blob affinity are unproven on this narrow fixture.",
+  "risk_or_anti_goal_implications": [
+    "migrated_row_loss==0 tripwire: GREEN on the live DB, CONDITIONAL on the verification contract explicitly excluding tool.status and tool.checked_at from the tool-table hash. If the PKR naively hashes all columns of tool, the tripwire will FALSE-TRIP on a correct migration. This must be written into the migrate-to-events verify step.",
+    "Do NOT treat schema_version/sqlite_sequence as durable — logging them would re-introduce machine-local state into git (the very thing US-028 removes) and could cause spurious merge deltas.",
+    "Idempotence requires deterministic genesis event_ids. If the real tool mints fresh random ULIDs on each migrate run, re-running migration is NOT idempotent. The genesis path needs deterministic id derivation (from original timestamp+table+id), distinct from the live-write ULID path."
+  ],
+  "promotion_recommendation": "PROMOTE a migrate-to-events PKR. Bake in three contract clauses this dry-run surfaced: (1) tool-table hash-equality proof excludes machine-local scan cols status+checked_at; (2) genesis preserves original integer ids in payload.id and uses deterministic event_ids so re-run is byte-idempotent; (3) fix a single canonical row-hash spec (column order, NULL handling, affinity) shared by writer and rebuild. schema_version/sqlite_sequence stay unlogged cache artifacts.",
+  "next_unknowns": [
+    "Confirm float/BLOB affinity round-trips once a fixture DB contains REAL columns and non-null duration_seconds/token_estimate (build a synthetic fixture — hand to a DKR).",
+    "Decide and pin the rebuild schema source: canonical DDL shipped in the CLI vs snapshot of the old DB's DDL (affects determinism across schema versions).",
+    "Two-writer merge + rebuild (merge_conflict_count==0) is untested here — separate DKR/anti-goal read."
+  ],
+  "artifacts": [
+    "/private/tmp/claude-501/-Users-thanhdq-sources--folks-harness-repository-cc/6b37c7a4-e0d0-4625-9d0e-3a8e081d32d2/scratchpad/dkr-3/dryrun.py",
+    "/private/tmp/claude-501/-Users-thanhdq-sources--folks-harness-repository-cc/6b37c7a4-e0d0-4625-9d0e-3a8e081d32d2/scratchpad/dkr-3/events_run1.jsonl",
+    "/private/tmp/claude-501/-Users-thanhdq-sources--folks-harness-repository-cc/6b37c7a4-e0d0-4625-9d0e-3a8e081d32d2/scratchpad/dkr-3/events_run2.jsonl",
+    "/private/tmp/claude-501/-Users-thanhdq-sources--folks-harness-repository-cc/6b37c7a4-e0d0-4625-9d0e-3a8e081d32d2/scratchpad/dkr-3/rebuilt_1.db",
+    "/private/tmp/claude-501/-Users-thanhdq-sources--folks-harness-repository-cc/6b37c7a4-e0d0-4625-9d0e-3a8e081d32d2/scratchpad/dkr-3/rebuilt_2.db",
+    "/private/tmp/claude-501/-Users-thanhdq-sources--folks-harness-repository-cc/6b37c7a4-e0d0-4625-9d0e-3a8e081d32d2/scratchpad/dkr-3/harness_orig.db"
+  ],
+  "status": "complete"
+}

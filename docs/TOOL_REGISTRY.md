@@ -157,7 +157,9 @@ without parsing the human table.
 | --- | --- | --- | --- |
 | `init` | Task state | Create the harness database. | none |
 | `migrate` | Task state | Apply pending schema migrations. | none |
-| `import brownfield` | Project memory | Seed durable records from markdown state. | none |
+| `import brownfield` | Project memory | One-time markdown seed (migration-only after cutover; re-runs refuse). | none |
+| `rebuild` | Verification | Deterministically rebuild a cache from the event log and print per-table counts + dump hash. | optional `--output` |
+| `migrate-to-events` | Task state | Migrate a pre-event database to the event log with a per-table count + content-hash equality proof. | none |
 | `intake` | Task specification | Record a feature intake classification. | `--type`, `--summary`, `--lane` |
 | `story add` | Task state | Create a durable story record. | `--id`, `--title`, `--lane`, optional `--verify` |
 | `story update` | Task state | Update story status, proof flags, evidence, or verification command. | `--id`, optional proof/status fields |

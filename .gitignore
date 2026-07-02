@@ -10,3 +10,12 @@ dist/
 # Downloaded Harness CLI binary for installed project instances.
 scripts/bin/harness-cli
 scripts/bin/harness-cli.exe
+
+# Event-log cutover (US-028b): the log in .harness/events/ is tracked team
+# state; everything else under .harness/ is machine-local cache or backup.
+.harness/shadow.db
+.harness/backup/
+.harness/tmp-migration-verify.db
+
+# okra goal-loop run store: lock artifacts are machine-local scratch.
+.okra/**/*.lock

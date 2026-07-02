@@ -1,0 +1,156 @@
+{
+  "action_envelope": {
+    "allowed_moves": [
+      "DKR discovery probes in scratch/prototype form (no repo behavior change)",
+      "story-packet authoring (US-028a/b/c high-risk packets)",
+      "harness-cli story/trace/signal/intervention/decision records",
+      "shadow-mode code behind no behavior change (US-028a)"
+    ],
+    "approval_gates": [
+      "implementation start (high-risk lane, docs/FEATURE_INTAKE.md)",
+      "cutover story US-028b",
+      "telemetry retention policy at US-028c boundary"
+    ],
+    "forbidden": [
+      "cutover writes before US-028b approval",
+      "deleting or rewriting the old harness.db (backup only, never deleted)",
+      "removing or weakening validation",
+      "editing calibration goldens to make them pass",
+      "rewriting existing event log lines (append-only)"
+    ],
+    "human_ratification_boundary": "docs/decisions/0008-us-028-goal-loop-frame.md; reject any attempted frame, guardrail, metric, threshold, or action-envelope change unless the human ratifies it"
+  },
+  "anti_goals": [
+    {
+      "comparator": "==",
+      "derived_from_risk_flag": "data model / multi-writer",
+      "metric_id": "merge_conflict_count",
+      "read_method": "two-writer git-merge e2e scenario",
+      "threshold": 0,
+      "type": "tripwire"
+    },
+    {
+      "comparator": "==",
+      "derived_from_risk_flag": "data loss / migration hard gate",
+      "metric_id": "migrated_row_loss",
+      "read_method": "row-count + per-table content-hash comparison, old DB vs rebuilt DB",
+      "threshold": 0,
+      "type": "tripwire"
+    },
+    {
+      "comparator": ">=baseline",
+      "derived_from_risk_flag": "existing behavior",
+      "metric_id": "pr_reviewability",
+      "read_method": "generated-view freshness check in PR diffs",
+      "threshold": "does not decrease",
+      "type": "drift"
+    },
+    {
+      "comparator": "==",
+      "derived_from_risk_flag": "existing behavior",
+      "metric_id": "calibration_green",
+      "read_method": "scripts/calibrate-harness.sh against rebuilt cache",
+      "threshold": 1,
+      "type": "tripwire"
+    },
+    {
+      "comparator": "<=",
+      "derived_from_risk_flag": "existing behavior (CLI feel)",
+      "metric_id": "write_latency_ms_p95",
+      "read_method": "mutation benchmark at 1k/10k/100k events; p95 CLI mutation latency <= 100 ms with a 10k-event log",
+      "threshold": 100,
+      "type": "drift"
+    },
+    {
+      "comparator": "==",
+      "derived_from_risk_flag": "existing behavior",
+      "metric_id": "story_verify_all_green",
+      "read_method": "harness-cli story verify-all",
+      "threshold": 1,
+      "type": "tripwire"
+    }
+  ],
+  "frame_hash": "computed-by-okra-store",
+  "frame_version": "v1",
+  "human_approval": {
+    "decision_ref": "0008-us-028-goal-loop-frame",
+    "open_questions_resolved": {
+      "import_brownfield": "migration-only",
+      "merge_rule": "LWW + audit",
+      "telemetry_in_git": "track all",
+      "writer_identity": "git user.email hash + per-clone disambiguator (HARNESS_WRITER override)"
+    },
+    "ratified": true,
+    "ratified_at": "2026-07-02",
+    "ratified_by": "human (thanhdq)"
+  },
+  "metric_contracts": [
+    {
+      "lag_window": "none (deterministic)",
+      "max_age": "current turn",
+      "metric_id": "teammate_visible_tables",
+      "read_method": "rebuild + byte-stable dump comparison",
+      "source": "CI fresh-clone rebuild job"
+    },
+    {
+      "lag_window": "none",
+      "max_age": "current turn",
+      "metric_id": "merge_conflict_count",
+      "read_method": "git merge exit + conflict scan",
+      "source": "two-writer e2e"
+    },
+    {
+      "lag_window": "none",
+      "max_age": "current turn",
+      "metric_id": "migrated_row_loss",
+      "read_method": "row count + content hash equality",
+      "source": "migrate-to-events verification"
+    },
+    {
+      "lag_window": "one PR cycle",
+      "max_age": "one PR cycle",
+      "metric_id": "pr_reviewability",
+      "read_method": "generated-view freshness check",
+      "source": "PR diff of generated views"
+    },
+    {
+      "lag_window": "none",
+      "max_age": "current turn",
+      "metric_id": "calibration_green",
+      "read_method": "exit code",
+      "source": "scripts/calibrate-harness.sh"
+    },
+    {
+      "lag_window": "none",
+      "max_age": "per build touching write path",
+      "metric_id": "write_latency_ms_p95",
+      "read_method": "benchmark report",
+      "source": "benchmark in validation"
+    },
+    {
+      "lag_window": "none",
+      "max_age": "current turn",
+      "metric_id": "story_verify_all_green",
+      "read_method": "exit + per-story results",
+      "source": "harness-cli story verify-all"
+    }
+  ],
+  "objective": {
+    "baseline": {
+      "note": "US-028 planned 0/0/0/0; no event log exists",
+      "observed_at": "2026-07-02",
+      "value": 0
+    },
+    "companion_metric": {
+      "metric_id": "rebuild_determinism",
+      "target": 1,
+      "unit": "proof_boolean"
+    },
+    "definition": "every durable table (intake, story, decision, backlog, trace, tool, intervention, story_signal) round-trips through git; fresh clone runs harness-cli rebuild and its cache answers every query identically to the writer's (byte-stable dump comparison)",
+    "metric_id": "teammate_visible_tables",
+    "read_method": "fresh-clone rebuild + dump comparison in CI; harness-cli query matrix --numeric",
+    "source": "docs/stories/epics/E05-event-log-durable-layer/US-028-event-log-durable-layer.md",
+    "target": 8,
+    "unit": "tables_round_tripping_of_8"
+  }
+}

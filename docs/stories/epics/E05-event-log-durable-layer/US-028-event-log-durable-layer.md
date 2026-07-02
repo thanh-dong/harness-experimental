@@ -2,7 +2,11 @@
 
 ## Status
 
-proposed — awaiting human ratification of the frame (see Open Questions)
+US-028a (shadow) and US-028b (cutover) implemented 2026-07-02 — the event log
+is the source of truth on this repository (decision
+`docs/decisions/0009-event-log-source-of-truth.md`, superseding 0004).
+US-028c (compaction/integrity) remains planned; telemetry retention is
+ratified at its boundary. Frame: decision 0008.
 
 ## Lane
 
@@ -85,10 +89,14 @@ source of truth; human-readable status is generated.*
 harness.db                   # gitignored; materialized cache; disposable
 ```
 
-- **Writer identity**: stable per human/agent — derived from `git config
-  user.email` (hashed short form) or `HARNESS_WRITER` override. Per-writer files
-  make concurrent appends conflict-free by construction: parallel branches touch
-  different files, merges are unions.
+- **Writer identity**: stable per clone — `git config user.email` (hashed short
+  form) **plus a per-clone disambiguator** auto-generated on first write and
+  stored untracked (e.g. `.git/harness-writer`), or `HARNESS_WRITER` override.
+  The disambiguator is required: one human on two machines shares one email, and
+  a bare email hash would point both clones at the same writer file, whose
+  parallel tail-appends conflict on merge. Per-clone files keep concurrent
+  appends conflict-free by construction; the shared email prefix preserves
+  human-level provenance (tooling groups writers by prefix).
 - **Event shape** (one JSON object per line):
 
 ```json
@@ -115,8 +123,17 @@ harness.db                   # gitignored; materialized cache; disposable
   only causally-unrelated events.
 - Inserts commute. Field updates are **last-writer-wins by that order**, with
   the losing event still visible in the log (provenance is free). A new `audit`
-  category surfaces concurrent updates to the same story field within a merge
-  window, so LWW is observable rather than silent.
+  category surfaces concurrent updates to the same story field, so LWW is
+  observable rather than silent. Concurrency detection is **causal, not
+  wall-clock**: flag any cross-writer same-`(row, field)` pair where neither
+  writer had observed the other's event when appending — preferred read: a
+  lightweight per-event `observed` watermark (per-writer consumed counts);
+  fallback: git merge-base concurrency. A wall-clock window is rejected —
+  for any window `W`, clock skew `> W` produces exactly the silent loss the
+  audit exists to prevent (DKR-4, run `us-028-event-log`: a 5-minute window
+  missed the 1-hour-skew collision; causal detection caught 5/5 with the
+  losing event always recoverable). A time bound may throttle alert display,
+  never detection.
 - IDs: `story`/`decision` already use human-assigned TEXT keys (unchanged).
   Auto-increment integer IDs (`backlog`, `trace`, `intake`, `intervention`,
   `signal`) become ULIDs; the CLI accepts unambiguous short prefixes and prints
@@ -131,7 +148,15 @@ harness.db                   # gitignored; materialized cache; disposable
   **watermark** (count + hash of consumed events per writer file). Every
   command first compares watermarks; new events (e.g. after `git pull`) are
   incrementally replayed before the query runs. `harness-cli rebuild` does the
-  full deterministic replay from genesis.
+  full deterministic replay from genesis. The watermark check must
+  short-circuit on `stat` (size + mtime_ns, tail-only hashing on append,
+  full re-hash fallback on mismatch) rather than re-hashing whole files:
+  the naive full re-hash is the design's only O(total-log) cost and would
+  drift toward the 100 ms wall as the log grows (DKR-2: naive no-op check
+  31 ms at 100k events vs 0.004 ms with the short-circuit; mutation p95
+  4.67 ms at the 10k acceptance point either way). Validation should gate
+  the latency benchmark at 100k events, not only 10k, so the linear-scaling
+  trap is caught in CI.
 
 ### Generated views
 
@@ -147,6 +172,24 @@ events (writer = `migration`, original timestamps preserved), then verifies:
 rebuilt cache row counts and per-table content hashes equal the original DB.
 Only after that proof does the tool write the log and demote the DB. The old DB
 is backed up, never deleted.
+
+Three contract clauses proven necessary by the migration dry-run on the live
+v6 DB (DKR-3, run `us-028-event-log`: 8/8 tables count- and hash-equal,
+byte-idempotent, deterministic rebuild):
+
+1. The `tool` table's hash-equality proof **excludes** the machine-local scan
+   columns (`status`, `checked_at`) — they are never logged, so a naive
+   all-columns hash false-trips the `migrated_row_loss` check on a correct
+   migration.
+2. Genesis events use **deterministic event ids** (derived from original
+   timestamp + table + id, distinct from the live-write ULID path) and
+   preserve original integer ids under `payload.id` — otherwise re-running
+   the migration is not idempotent and the hash proof cannot run against the
+   true old ids.
+3. Writer and rebuild share **one canonical row-hash spec** (column order,
+   NULL handling, type affinity, encoding) — two ad-hoc canonicalizations
+   will disagree even on identical data. `schema_version` and
+   `sqlite_sequence` stay unlogged cache artifacts.
 
 ### Integrity (phase 3, optional)
 
@@ -196,7 +239,7 @@ determinism be proven on real data before anything depends on it.
 | Risk | Mitigation |
 | --- | --- |
 | Clock skew reorders events across writers | ULID + per-writer monotonic counter; only causally-unrelated events can reorder; LWW is audited |
-| Log grows unbounded (traces are chatty) | phase 3 snapshots + watermark; telemetry retention policy decided at ratification |
+| Log grows unbounded (traces are chatty) | phase 3 snapshots + watermark; retention policy ratified at the US-028c boundary. Measured (DKR-1): bytes are a non-issue (≤9.6 MB raw / ≤2.4 MB packed at 24 mo, 4-person team at 12× this repo's rate); the binding constraint is replay **event count** — compaction triggers on ~5k events (~5 MB raw secondary guard) with telemetry-age snapshotting as the main lever. Add `.gitattributes` `linguist-generated` for `.harness/events/*.jsonl` so ~1.9 KB single-line trace events stay out of human-reviewed diffs |
 | Agent queries stale cache after pull | watermark check on every command — staleness is detected, not trusted |
 | Event schema evolves | `schema` field per event + upcasters in replay; never rewrite old events |
 | Partial adoption breaks teammates | shadow phase proves determinism first; cutover is one atomic story with migration proof |
@@ -210,18 +253,21 @@ determinism be proven on real data before anything depends on it.
 - Multi-repo/org-wide aggregation — out of scope for this epic.
 - Logging `tool check` scan results — machine-local reality stays local.
 
-## Open Questions (human ratification required)
+## Open Questions (ratified 2026-07-02 — decision 0008)
 
-1. **Telemetry in git: yes or no?** Tracking `trace`/`intervention`/`signal`
-   events enables team-wide `propose` mining (the main prize) but adds commit
-   noise and grows the log fastest. Options: track all (default proposed),
-   track with rotation, or keep telemetry local and log only contract tables.
-2. **LWW vs field-level merge** for concurrent `story.update` — LWW + audit is
-   proposed; field-merge is more correct and more complex.
-3. **Writer identity source** — `git config user.email` hash (proposed) vs
-   explicit `HARNESS_WRITER` requirement.
-4. **Retire `import brownfield` as sync** — becomes migration-only. Confirm no
-   workflow still depends on markdown → DB seeding post-cutover.
+1. **Telemetry in git: yes or no?** — **Ratified: track all.**
+   `trace`/`intervention`/`signal` events are logged; team-wide `propose`
+   mining is the prize. DKR-1 measures real log growth before cutover;
+   retention policy is ratified at the US-028c boundary on that evidence.
+2. **LWW vs field-level merge** for concurrent `story.update` — **Ratified:
+   LWW + audit.** DKR-4 validates the semantics under clock skew; revisit only
+   if it shows silent-loss risk.
+3. **Writer identity source** — **Ratified: `git config user.email` hash plus
+   per-clone disambiguator** (see Design › Writer identity for why the bare
+   hash fails the same-email-two-machines case). `HARNESS_WRITER` stays as
+   override.
+4. **Retire `import brownfield` as sync** — **Ratified: migration-only** after
+   cutover; markdown surfaces are generated views and are not imported back.
 
 ## Harness Maintenance
 

@@ -1,0 +1,67 @@
+{
+  "dkr_id": "DKR-2",
+  "decision_target": "Whether the naive watermark design (write = watermark-check -> validate -> append+fsync -> apply to SQLite cache -> update watermark; watermark = count+hash of consumed events per writer file) meets write_latency_ms <= 100 p95 per CLI mutation, so the orchestrator can fund or redesign the US-028b write path.",
+  "evidence": [
+    {
+      "claim": "Full per-mutation CLI latency (fresh SQLite open + watermark-check + append+fsync + cache apply + watermark update) is far under the 100ms wall at 1k and 10k events; the 10k figure is the spec's own acceptance target.",
+      "source": "scratchpad/dkr-2/probe.py measure_mutations, 250 mutations/size, macOS APFS",
+      "numbers": "1k: p50=0.91ms p95=1.08ms max=1.39ms | 10k: p50=4.43ms p95=4.67ms max=5.0ms (~21x margin under 100ms) | 100k: p50=41.67ms p95=54.23ms max=67.61ms"
+    },
+    {
+      "claim": "The dominant cost is the naive watermark check itself: re-reading and re-hashing every writer file in full on every command. It scales linearly with total log bytes and is the only component that grows.",
+      "source": "probe.py component breakdown (components_p95) + watermark_check_noop",
+      "numbers": "wcheck p95: 0.45ms@1k -> 3.13ms@10k -> 39.9ms@100k. watermark_update (re-reads own file) p95: 0.40 -> 1.30 -> 13.7ms. Log bytes: 0.44MB / 4.4MB / 44.6MB. No-op watermark check alone: p95 0.72 / 3.2 / 31.2ms."
+    },
+    {
+      "claim": "fsync/durability is NOT a bottleneck. Plain os.fsync is ~0.02ms; true macOS barrier durability (F_FULLFSYNC) is ~3-4ms p95 - negligible against the 100ms wall even if the CLI upgrades to full durability. SQLite open and cache apply are also negligible (<0.25ms each at 100k).",
+      "source": "inline fcntl F_FULLFSYNC probe (200 samples) + probe.py components",
+      "numbers": "plain_fsync p95=0.023ms; F_FULLFSYNC p95=3.888ms max=5.086ms; sqlite open p95<=0.09ms; cache apply p95<=0.21ms"
+    },
+    {
+      "claim": "Cold-start costs: full rebuild from genesis is linear and acceptable for an explicit command; incremental replay of 100 new events after a simulated pull is cheap because it is dominated by the same one-time watermark re-hash, not the replay.",
+      "source": "probe.py measure_rebuild + measure_incremental_replay",
+      "numbers": "rebuild: 5.7ms@1k / 38.6ms@10k / 367.4ms@100k. incremental replay of 100 events: 1.31ms@1k / 4.37ms@10k / 49.28ms@100k (of which ~40ms is the watermark re-hash, ~1ms the actual 100-event apply)."
+    },
+    {
+      "claim": "The cheapest mitigation eliminates the only scaling cost: track (size, mtime_ns, count, tail-hash) per writer file and short-circuit on stat when unchanged, hashing only appended bytes. This makes the steady-state no-op check flat regardless of log size.",
+      "source": "inline stat-short-circuit probe at 100k-event fixture (500 samples)",
+      "numbers": "mitigation stat-only no-op check at 100k: p50=0.003ms p95=0.004ms max=0.006ms (vs 31ms naive full re-hash at same size, ~7500x cheaper)"
+    }
+  ],
+  "questions_answered": [
+    "Does the naive watermark design meet p95<=100ms at the acceptance target (10k events)? YES - 4.67ms p95, ~21x margin.",
+    "Does it hold at 100k? YES but marginally - 54ms p95 / 67ms max; it clears the wall with head-room but is on a linear curve that would breach 100ms somewhere around ~150-200k events on this hardware.",
+    "What is the dominant cost? The full re-read+re-hash of the entire log on every command (watermark check + watermark update together), linear in total log bytes.",
+    "Is fsync the problem? NO - negligible even under true F_FULLFSYNC durability.",
+    "What is the cheapest fix if p95 approaches 100ms? A stat(size+mtime) short-circuit plus tail-only hashing; it flattens per-command overhead to sub-millisecond at any tested size."
+  ],
+  "questions_unanswered": [
+    "Real-world log size at cutover and its growth rate (traces are chatty) - this determines whether 100k+ is ever reached; that is DKR-1's assignment, not measured here.",
+    "Contention/latency when git operations or antivirus touch .harness/events concurrently on a loaded developer machine (measured on an idle machine).",
+    "Whether SQLite is opened with PRAGMA fullfsync=ON in the real CLI (default macOS SQLite uses plain fsync); if enabled, add ~3ms/commit - still immaterial.",
+    "Number and size distribution of writer files on a real team (modeled as 3 writers; watermark cost tracks total bytes, largely writer-count-independent)."
+  ],
+  "confidence_update": [
+    "P(naive design meets p95<=100ms at 10k events, the acceptance target) ~ 0.99 - measured 4.67ms p95 with ~21x margin; even F_FULLFSYNC + machine jitter cannot close that gap.",
+    "P(naive design meets p95<=100ms at 100k events) ~ 0.88 - measured 54ms p95 / 67ms max clears it, but the linear curve plus a loaded machine, F_FULLFSYNC, and OS cache misses could push tail latency over 100ms at that size.",
+    "P(naive design meets p95<=100ms unbounded, ignoring log growth) ~ 0.4 - it fails by construction once the log exceeds ~150-200k events because watermark cost is O(total log bytes).",
+    "P(mitigated design - stat short-circuit + tail-only hash - meets p95<=100ms at any realistic team size) ~ 0.98 - steady-state overhead becomes flat sub-millisecond, decoupled from log size."
+  ],
+  "risk_or_anti_goal_implications": [
+    "write_latency_ms<=100 p95 (drift anti-goal): SAFE at and well below the acceptance target (10k). Not a blocker for funding US-028b.",
+    "Latent drift risk: the naive design's O(total-log) watermark check is a time-bomb - latency silently grows with the log and would breach the wall at high event counts. Since telemetry-in-git was ratified as 'track all' (decision 0008 Q1), the log will grow fast, making this a realistic future breach rather than theoretical.",
+    "Recommend the drift check in validation be a REGRESSION gate at a fixed large log size (e.g. assert p95 at 100k stays <100ms), not just a spot check at 10k, so the linear-scaling trap is caught in CI.",
+    "No implication for merge_conflict_count, migrated_row_loss, or rebuild_determinism from this probe (those are DKR-1/DKR-3/DKR-4 scope)."
+  ],
+  "promotion_recommendation": "FUND US-028b write path. The write/read path is latency-viable: naive implementation already clears the 100ms wall through 100k events, and durability (fsync/F_FULLFSYNC) is a non-issue. STRONGLY recommend building the stat(size+mtime) short-circuit + tail-only-hash watermark into US-028b from the start rather than shipping the naive full-re-hash and deferring the fix - it is a small, localized change (roughly the watermark_check function), removes the only scaling cost, and converts a latent drift-anti-goal breach into a flat sub-millisecond overhead. Do NOT redesign away from the JSONL+SQLite-cache+watermark architecture; the bottleneck is an implementation detail of the watermark, not the design.",
+  "next_unknowns": [
+    "Real log growth rate under 'track all telemetry' (DKR-1) - decides how soon the naive O(total-log) curve would matter and whether the mitigation is urgent or merely prudent.",
+    "Whether US-028a shadow mode should already emit the stat-based watermark metadata so US-028b cutover inherits the flat cost with no migration of watermark format.",
+    "Behavior of watermark stat-short-circuit under git operations that rewrite files in place (e.g. merge, checkout) which may reset mtime without changing content - needs a content-hash fallback path (measured: full re-hash on a mismatch is the current fallback, ~40ms at 100k, acceptable as a rare event)."
+  ],
+  "artifacts": [
+    "/private/tmp/claude-501/-Users-thanhdq-sources--folks-harness-repository-cc/6b37c7a4-e0d0-4625-9d0e-3a8e081d32d2/scratchpad/dkr-2/probe.py",
+    "/private/tmp/claude-501/-Users-thanhdq-sources--folks-harness-repository-cc/6b37c7a4-e0d0-4625-9d0e-3a8e081d32d2/scratchpad/dkr-2/results.json"
+  ],
+  "status": "complete"
+}

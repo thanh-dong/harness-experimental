@@ -85,11 +85,17 @@ Those should arrive only when a selected story needs them.
 Policy documents describe how to work. The durable layer stores what happened.
 
 Operational data — intake classifications, story status, decision outcomes,
-backlog items, and execution traces — lives in a SQLite database (`harness.db`)
-managed by the Rust Harness CLI at `scripts/bin/harness-cli`. Agents and humans
-should use that binary for Harness work. The database is local to each project
-instance and `.gitignore`d. The schema is version-controlled under
-`scripts/schema/`.
+backlog items, and execution traces — is an **append-only, per-writer event
+log tracked in git** at `.harness/events/` (US-028b, decision 0009). The
+SQLite database (`harness.db`) is a disposable materialized cache,
+deterministically rebuilt from the log: a fresh clone answers queries by
+auto-rebuilding, `git pull` merges teammates' writer files with zero
+conflicts, and every command incrementally replays new events before it runs.
+Use the Rust Harness CLI at `scripts/bin/harness-cli` for all Harness work.
+The cache stays local and `.gitignore`d; the log is team state. The schema is
+version-controlled under `scripts/schema/`; `harness-cli rebuild` proves
+replay determinism and `harness-cli migrate-to-events` migrates a pre-event
+database with a row-loss equality proof.
 
 This separation keeps policy docs stable and human-readable while giving agents
 a structured, queryable record of operational state. It also prepares the

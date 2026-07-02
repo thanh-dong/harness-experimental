@@ -6,7 +6,9 @@ use crate::domain::{
     InterventionRecord, RiskLane, StoryMatrixRecord, StorySignalRecord, StoryVerifyAllResult,
     StoryVerifyStatus, ToolArgSpec, ToolEntry, TraceRecord, TraceScoreResult,
 };
-use crate::infrastructure::{HarnessRepository, SqliteHarnessRepository, ToolCheckResult};
+use crate::infrastructure::{
+    HarnessRepository, RebuildResult, SqliteHarnessRepository, ToolCheckResult,
+};
 
 #[derive(Debug)]
 pub struct HarnessContext {
@@ -85,7 +87,7 @@ pub struct ToolRegisterInput {
 
 #[derive(Debug)]
 pub struct InterventionAddInput {
-    pub trace_id: Option<i64>,
+    pub trace_id: Option<String>,
     pub story_id: Option<String>,
     pub intervention_type: String,
     pub description: String,
@@ -95,7 +97,7 @@ pub struct InterventionAddInput {
 
 #[derive(Debug, Default)]
 pub struct InterventionFilter {
-    pub trace_id: Option<i64>,
+    pub trace_id: Option<String>,
     pub story_id: Option<String>,
     pub intervention_type: Option<String>,
 }
@@ -103,7 +105,7 @@ pub struct InterventionFilter {
 #[derive(Debug)]
 pub struct StorySignalAddInput {
     pub story_id: Option<String>,
-    pub trace_id: Option<i64>,
+    pub trace_id: Option<String>,
     pub signal_type: String,
     pub summary: String,
     pub component: Option<String>,
@@ -118,7 +120,7 @@ pub struct StorySignalFilter {
 
 #[derive(Debug)]
 pub struct BacklogCloseInput {
-    pub id: i64,
+    pub id: String,
     pub status: String,
     pub actual_outcome: Option<String>,
 }
@@ -126,7 +128,7 @@ pub struct BacklogCloseInput {
 #[derive(Debug)]
 pub struct TraceInput {
     pub task_summary: String,
-    pub intake_id: Option<i64>,
+    pub intake_id: Option<String>,
     pub story_id: Option<String>,
     pub agent: Option<String>,
     pub outcome: Option<String>,
@@ -168,7 +170,7 @@ impl HarnessService {
         self.repository.import_brownfield()
     }
 
-    pub fn record_intake(&self, input: IntakeInput) -> crate::infrastructure::Result<i64> {
+    pub fn record_intake(&self, input: IntakeInput) -> crate::infrastructure::Result<String> {
         self.repository.record_intake(input)
     }
 
@@ -196,7 +198,7 @@ impl HarnessService {
         self.repository.verify_decision(id)
     }
 
-    pub fn add_backlog(&self, input: BacklogAddInput) -> crate::infrastructure::Result<i64> {
+    pub fn add_backlog(&self, input: BacklogAddInput) -> crate::infrastructure::Result<String> {
         self.repository.add_backlog(input)
     }
 
@@ -222,26 +224,29 @@ impl HarnessService {
     pub fn add_intervention(
         &self,
         input: InterventionAddInput,
-    ) -> crate::infrastructure::Result<i64> {
+    ) -> crate::infrastructure::Result<String> {
         self.repository.add_intervention(input)
     }
 
     pub fn add_story_signal(
         &self,
         input: StorySignalAddInput,
-    ) -> crate::infrastructure::Result<i64> {
+    ) -> crate::infrastructure::Result<String> {
         self.repository.add_story_signal(input)
     }
 
-    pub fn record_trace(&self, input: TraceInput) -> crate::infrastructure::Result<i64> {
+    pub fn record_trace(&self, input: TraceInput) -> crate::infrastructure::Result<String> {
         self.repository.record_trace(input)
     }
 
-    pub fn score_trace(&self, id: Option<i64>) -> crate::infrastructure::Result<TraceScoreResult> {
+    pub fn score_trace(
+        &self,
+        id: Option<String>,
+    ) -> crate::infrastructure::Result<TraceScoreResult> {
         self.repository.score_trace(id)
     }
 
-    pub fn score_context(&self, id: i64) -> crate::infrastructure::Result<ContextScoreResult> {
+    pub fn score_context(&self, id: &str) -> crate::infrastructure::Result<ContextScoreResult> {
         self.repository.score_context(id)
     }
 
@@ -311,6 +316,16 @@ impl HarnessService {
 
     pub fn propose(&self, commit: bool) -> crate::infrastructure::Result<Vec<ImprovementProposal>> {
         self.repository.propose(commit)
+    }
+
+    pub fn rebuild(&self, output: Option<PathBuf>) -> crate::infrastructure::Result<RebuildResult> {
+        self.repository.rebuild(output)
+    }
+
+    pub fn migrate_to_events(
+        &self,
+    ) -> crate::infrastructure::Result<crate::infrastructure::MigrateToEventsResult> {
+        self.repository.migrate_to_events()
     }
 
     pub fn query_sql(&self, sql: &str) -> crate::infrastructure::Result<QueryTable> {
