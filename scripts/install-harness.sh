@@ -179,6 +179,15 @@ if grep -Fxq "harness.db" "$target" &&
   UPDATED=$((UPDATED + 1))
 }
 
+mark_shell_script_executable() {
+  local relative="$1"
+  local target="$2"
+
+  case "$relative" in
+    scripts/*.sh) chmod 755 "$target" ;;
+  esac
+}
+
 write_source_file() {
   local relative="$1"
   local target="$2"
@@ -187,11 +196,13 @@ write_source_file() {
     local source="$SOURCE_ROOT/$relative"
     [ -f "$source" ] || fail "Source file missing: $source"
     cp -p "$source" "$target"
+    mark_shell_script_executable "$relative" "$target"
     return
   fi
 
   local url="$SOURCE_BASE_URL/$relative"
   curl -fsSL "$url" -o "$target" || fail "Could not download $url"
+  mark_shell_script_executable "$relative" "$target"
 }
 
 agent_shim_block() {

@@ -140,6 +140,22 @@ On Windows the CLI is called as `.\scripts\bin\harness-cli.exe`.
 
 ### For Agents: Fresh Install Or Update
 
+> [!IMPORTANT]
+> **This fork is private.** The anonymous `curl … raw.githubusercontent.com … | bash`
+> one-liners return 404 without credentials. From a machine with `gh` auth, use the
+> authenticated flow instead — it is verified end-to-end:
+>
+> ```bash
+> gh repo clone thanh-dong/harness-repository-cc /tmp/harness
+> gh release download "$(cat /tmp/harness/scripts/harness-cli-release-tag)" \
+>   -R thanh-dong/harness-repository-cc -D /tmp/harness-dist
+> HARNESS_CLI_BASE_URL="file:///tmp/harness-dist" \
+>   /tmp/harness/scripts/install-harness.sh --claude --yes            # fresh install
+> #  … --merge --refresh-agent-shim --claude --yes                    # update
+> ```
+>
+> The curl one-liners below work as written once the repo is made public.
+
 The one-pass playbook for both paths is [`docs/SETUP.md`](docs/SETUP.md). Pick the
 branch that matches the target repo:
 

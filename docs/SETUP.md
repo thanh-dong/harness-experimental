@@ -15,6 +15,20 @@ scripts/bin/harness-cli init
 `--claude` imports the harness context into every Claude Code session. Drop it for
 other agents. Windows: `scripts/bin/harness-cli.exe`.
 
+**While this fork is private**, the anonymous curl lines here and in the update
+section return 404. Use the authenticated flow from a `gh`-logged-in machine:
+
+```bash
+gh repo clone thanh-dong/harness-repository-cc /tmp/harness
+gh release download "$(cat /tmp/harness/scripts/harness-cli-release-tag)" \
+  -R thanh-dong/harness-repository-cc -D /tmp/harness-dist
+HARNESS_CLI_BASE_URL="file:///tmp/harness-dist" \
+  /tmp/harness/scripts/install-harness.sh --claude --yes
+# update an existing install: append --merge --refresh-agent-shim
+# (--merge keeps the existing scripts/bin/harness-cli; the dist download is
+#  only needed on fresh installs)
+```
+
 ## 2. Wire the tools
 
 Tools are **capability providers**; a workflow step looks them up by capability,
