@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Implementation notes — US-028b Event-Log Cutover</title>
+<style>
+  body { font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2430; max-width: 860px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.4rem; border-bottom: 2px solid #e3e6ec; padding-bottom: .4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; color: #2c3550; }
+  code { background: #f1f3f7; padding: .1em .35em; border-radius: 4px; font-size: .9em; }
+  table { border-collapse: collapse; width: 100%; margin: .8rem 0; }
+  th, td { border: 1px solid #dadfe8; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #f1f3f7; }
+  .signal { display: inline-block; font-size: .75em; font-weight: 600; padding: .1em .5em; border-radius: 999px; background: #e8f0fe; color: #1a56db; margin-right: .4em; }
+</style>
+</head>
+<body>
+<h1>Implementation notes — US-028b Event-Log Cutover</h1>
+<p>
+Story packet: <code>docs/stories/epics/E05-event-log-durable-layer/US-028b-cutover/</code> ·
+Decisions: <code>0008</code> (frame), <code>0009</code> (supersedes 0004) ·
+Intake: <code>#3</code> (new_initiative, high-risk)
+</p>
+
+<h2><span class="signal">design decision</span> Design decisions</h2>
+<table>
+<tr><th>Decision</th><th>Rejected alternative</th><th>Why</th></tr>
+<tr>
+<td>Mutation order: apply-in-transaction → append+fsync → commit.</td>
+<td>Append-first, then apply.</td>
+<td>SQLite CHECK/PK constraints validate the event <em>before</em> it can poison the log (a bad <code>--outcome</code> never becomes a permanent log line). The crash window between append and commit leaves cache behind log — exactly the direction watermark replay heals. Apply-and-commit-first would allow cache ahead of log = silent drift.</td>
+</tr>
+<tr>
+<td>The LWW guard lives in <code>apply_story_update</code> (a field applies only when the incoming <code>(event_id, writer)</code> exceeds the last update's).</td>
+<td>Order-by-arrival apply.</td>
+<td>Required for incremental replay to converge with full rebuild when an older concurrent event arrives after a newer one (clock skew + late pull). Proven by test: the late older event does not overwrite, and the collision is still audited.</td>
+</tr>
+<tr>
+<td>Causal audit via per-event <code>observed</code> watermark snapshots (DKR-4's preferred option), weight 0 in the entropy score.</td>
+<td>git merge-base detection; wall-clock window; entropy-scoring collisions.</td>
+<td>Transport-agnostic and works at replay time without git. Wall-clock windows structurally miss skew &gt; window. Weight 0: a resolved LWW collision is surfaced state, not drift — calibration goldens stay stable.</td>
+</tr>
+<tr>
+<td>ULID id display is full-length; input accepts unambiguous prefixes.</td>
+<td>Parent spec's "prints short forms".</td>
+<td>A ULID prefix is its timestamp: any truncated display form is ambiguous precisely for burst-created rows and cannot be pasted back. Deviation recorded below.</td>
+</tr>
+<tr>
+<td><code>import brownfield</code> on a pristine event-backed cache seeds legacy-style then immediately re-runs <code>migrate-to-events</code> internally.</td>
+<td>Refusing outright; teaching the importer to emit events.</td>
+<td>Preserves the documented adoption flow (init → import) with a proven-genesis result, reusing the migration proof instead of a second event-emitting importer. Non-pristine event-backed caches refuse (decision 0008 Q4).</td>
+</tr>
+<tr>
+<td><code>migrate-to-events</code> demands current schema (<code>migrate</code> first).</td>
+<td>Auto-applying pending migrations inside it.</td>
+<td>The dogfood run caught this live: live INTEGER ids vs rebuilt TEXT ids failed the equality proof (the tripwire worked). Explicit ordering keeps <code>migrate</code> the single schema authority; the error now names the fix.</td>
+</tr>
+</table>
+
+<h2><span class="signal">deviation</span> Deviations</h2>
+<ul>
+<li>Id display: full ULIDs instead of the parent spec's "short forms" (rationale above; prefix input keeps the <code>backlog close --id</code> ergonomics).</li>
+<li>US-028a's <code>emit_shadow</code> (warn-never-fail) was removed rather than kept dormant: post-cutover an unwritable log <b>fails the command and rolls back the cache write</b> — the flip is tested.</li>
+<li>Generated views are markdown tables (parse-stable, diff-friendly) rather than preserving the old templates' instructional prose.</li>
+</ul>
+
+<h2><span class="signal">tradeoff</span> Tradeoffs &amp; accepted limits</h2>
+<ul>
+<li>Tool scan status (<code>status</code>, <code>checked_at</code>) resets to <code>unknown</code> on rebuild — machine-local reality is never logged; <code>tool check</code> re-scans.</li>
+<li>Full rebuild is linear (~7.6 s at 100k events) — acceptable for the explicit fresh-clone/rebuild path; the per-command path is flat (~6.8 ms p95 measured at 100k, ~15× under the wall) thanks to the stat short-circuit built in from the start (DKR-2).</li>
+<li>No file locking between two same-writer processes racing on one clone; O_APPEND keeps lines intact and a mismatched watermark heals via prefix-hash check or full rebuild. Single-user CLI risk accepted.</li>
+<li>Log growth unbounded until US-028c (count-triggered compaction ~5k events; DKR-1 shows bytes are a non-issue for 24+ months).</li>
+</ul>
+
+<h2><span class="signal">open question</span> Open questions</h2>
+<ul>
+<li>Should CI run the ignored latency benchmark on a schedule (it asserts the 100 ms wall at 100k events)? Recommendation: yes, weekly — it is the drift-regression gate DKR-2 recommended.</li>
+<li>When to commit <code>.harness/events/</code> for this repo — the log is now team state; recommendation: commit with this story's change set.</li>
+</ul>
+</body>
+</html>

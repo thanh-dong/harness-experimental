@@ -573,7 +573,7 @@ fn tool(
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct IntakeRecord {
-    pub id: i64,
+    pub id: String,
     pub created_at: String,
     pub input_type: String,
     pub risk_lane: String,
@@ -639,7 +639,7 @@ impl StoryVerifyAllResult {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct BacklogRecord {
-    pub id: i64,
+    pub id: String,
     pub title: String,
     pub status: String,
     pub risk: Option<String>,
@@ -665,7 +665,7 @@ pub struct DecisionRecord {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct TraceRecord {
-    pub id: i64,
+    pub id: String,
     pub created_at: String,
     pub outcome: Option<String>,
     pub task_summary: String,
@@ -697,9 +697,9 @@ impl TraceQualityTier {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct TraceScoreSource {
-    pub id: i64,
+    pub id: String,
     pub task_summary: String,
-    pub intake_id: Option<i64>,
+    pub intake_id: Option<String>,
     pub risk_lane: Option<String>,
     pub agent: Option<String>,
     pub actions_taken: Option<String>,
@@ -716,7 +716,7 @@ pub struct TraceScoreSource {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct TraceScoreResult {
-    pub trace_id: i64,
+    pub trace_id: String,
     pub achieved: TraceQualityTier,
     pub risk_lane: Option<String>,
     pub required: Option<TraceQualityTier>,
@@ -1012,7 +1012,7 @@ fn notes_explain_missing(notes: &Option<String>, field: &str) -> bool {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FrictionRecord {
-    pub id: i64,
+    pub id: String,
     pub created_at: String,
     pub risk_lane: Option<String>,
     pub input_type: Option<String>,
@@ -1022,9 +1022,9 @@ pub struct FrictionRecord {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct InterventionRecord {
-    pub id: i64,
+    pub id: String,
     pub created_at: String,
-    pub trace_id: Option<i64>,
+    pub trace_id: Option<String>,
     pub story_id: Option<String>,
     pub intervention_type: String,
     pub description: String,
@@ -1034,10 +1034,10 @@ pub struct InterventionRecord {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct StorySignalRecord {
-    pub id: i64,
+    pub id: String,
     pub created_at: String,
     pub story_id: Option<String>,
-    pub trace_id: Option<i64>,
+    pub trace_id: Option<String>,
     pub signal_type: String,
     pub summary: String,
     pub component: Option<String>,
@@ -1046,7 +1046,7 @@ pub struct StorySignalRecord {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ContextScoreSource {
-    pub id: i64,
+    pub id: String,
     pub risk_lane: Option<String>,
     pub story_id: Option<String>,
     pub files_read: Option<String>,
@@ -1063,7 +1063,7 @@ pub struct ContextRequirementResult {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ContextScoreResult {
-    pub trace_id: i64,
+    pub trace_id: String,
     pub lane: String,
     pub phase: String,
     pub must: Vec<ContextRequirementResult>,
@@ -1085,6 +1085,10 @@ pub struct AuditResult {
     pub backlog_without_outcomes: Vec<AuditFinding>,
     pub stale_stories: Vec<AuditFinding>,
     pub broken_tools: Vec<AuditFinding>,
+    /// US-028b: cross-writer same-field story updates that were causally
+    /// concurrent (LWW picked a winner). Surfacing, not drift: weight 0 in
+    /// the entropy score — the record itself is the guardrail.
+    pub concurrent_lww_updates: Vec<AuditFinding>,
 }
 
 impl AuditResult {
@@ -1109,7 +1113,7 @@ pub struct ImprovementProposal {
     pub suggested_action: String,
     pub validation_plan: String,
     pub confidence: String,
-    pub committed_backlog_id: Option<i64>,
+    pub committed_backlog_id: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1266,7 +1270,7 @@ mod tests {
 
     fn trace_source() -> TraceScoreSource {
         TraceScoreSource {
-            id: 7,
+            id: "7".to_owned(),
             task_summary: "Completed a useful task".to_owned(),
             intake_id: None,
             risk_lane: None,
@@ -1336,7 +1340,7 @@ mod tests {
     #[test]
     fn context_score_applies_lane_and_retrieval_triggers() {
         let result = score_context(ContextScoreSource {
-            id: 42,
+            id: "42".to_owned(),
             risk_lane: Some("normal".to_owned()),
             story_id: Some("US-019".to_owned()),
             files_read: Some(

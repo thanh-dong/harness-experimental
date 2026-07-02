@@ -1,6 +1,9 @@
 # Agent Instructions
 
-Add project-specific agent instructions here.
+Durable harness state is a git-tracked event log at `.harness/events/`;
+`harness.db` is a rebuilt cache. Agents collaborate by writing through the CLI
+and committing the log with their work — see the "Working Together Through The
+Event Log" section in `CLAUDE.md` and the full reference in `docs/EVENT_LOG.md`.
 
 <!-- HARNESS:BEGIN -->
 ## Harness

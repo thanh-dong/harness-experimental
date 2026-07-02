@@ -1,0 +1,122 @@
+{
+  "tree_version": "v2",
+  "frame_version": "v1",
+  "orchestrator": {
+    "owns": "objective checks, check-ins, the OKR board, and subagent steering until the objective metric reaches target (teammate_visible_tables == 8/8 with rebuild_determinism == 1) or a human/blocking flag stops the loop",
+    "admissibility": "screens every move against fresh anti-goal reads or a dry-run before dispatch",
+    "dkr_learning_gate": "Candidate CKRs and candidate PKRs are not promoted until the orchestrator accepts the supporting DKR learning checkpoint.",
+    "frame_authority": "read-only; reject any attempted frame, guardrail, metric, threshold, or action-envelope change unless the human ratifies it"
+  },
+  "dkrs": [
+    {
+      "id": "DKR-1",
+      "scope": "replay this repo's real history through the event shape; measure log growth with/without telemetry ops",
+      "decision_target": "retention/compaction posture for US-028c; validates ratified track-all telemetry",
+      "reduces_uncertainty_on": "pr_reviewability drift, log growth",
+      "budget": "1 discovery worker, ~30 turns",
+      "status": "complete_accepted",
+      "checkpoint_sha256": "6cd587dc1d47850324569e83c5aa48ee8c178d407ccc1aa6450951ce82dbc894",
+      "headline": "telemetry-in-git byte-safe (<=9.6MB raw/<=2.4MB packed @24mo team-12x); binding constraint is replay event COUNT; recommend ~5k-event compaction trigger + ~90d telemetry-age snapshotting + .gitattributes linguist-generated"
+    },
+    {
+      "id": "DKR-2",
+      "scope": "prototype watermark incremental replay; measure apply cost at 1k/10k/100k events",
+      "decision_target": "fund vs redesign the US-028b write path",
+      "reduces_uncertainty_on": "write_latency_ms_p95 <= 100",
+      "budget": "1 discovery worker, ~30 turns",
+      "status": "complete_accepted",
+      "checkpoint_sha256": "7a204902a5a40795d02db5f4e83e8cbbb5e8a5006ec42fc10b6e1681d230c14e",
+      "headline": "p95 4.67ms @10k (~21x margin), 54ms @100k; dominant cost = O(total-log) watermark re-hash; build stat(size+mtime)+tail-hash short-circuit into US-028b from the start (no-op check 0.004ms flat); add 100k regression gate to CI"
+    },
+    {
+      "id": "DKR-3",
+      "scope": "synthesize genesis events from the populated v6 DB; hash-compare rebuilt vs original",
+      "decision_target": "promote migrate-to-events PKRs (this probe is the migration dry-run)",
+      "reduces_uncertainty_on": "migrated_row_loss == 0",
+      "budget": "1 discovery worker, ~20 turns",
+      "status": "complete_accepted",
+      "checkpoint_sha256": "f44777980d4ba8f067ceb1ac1b3840f4bee9784448a304cad8e4afee4e8b42f3",
+      "headline": "migrated_row_loss==0 proven on live DB (8/8 tables, byte-idempotent, deterministic rebuild); 3 binding clauses: tool-col exclusion (status/checked_at), deterministic genesis event_ids + payload.id preservation, single canonical row-hash spec"
+    },
+    {
+      "id": "DKR-4",
+      "scope": "simulate concurrent same-field story.update under ULID ordering with skewed clocks",
+      "decision_target": "confirm ratified LWW+audit shows no silent loss; audit window semantics",
+      "reduces_uncertainty_on": "silent data loss in merge semantics",
+      "budget": "1 discovery worker, ~15 turns",
+      "status": "complete_accepted",
+      "checkpoint_sha256": "069a76733931721685775150c582dd2ff389df313ee8f802e383ddc7cbb6a085",
+      "headline": "determinism 10/10 merge orders; loser always recoverable; audit MUST be causal (observed-watermark preferred, merge-base fallback) \u2014 any wall-clock window W silently misses skew>W; P(no silent loss) 0.97 causal vs 0.55 wall-clock"
+    }
+  ],
+  "ckrs": [
+    {
+      "id": "CKR-1",
+      "title": "shadow determinism",
+      "metric": "rebuild_determinism == 1 in CI on real data",
+      "maps_to": "US-028a",
+      "discovery_delivery_balance": "discovery: DKR-1/DKR-2 proved event shape and replay cost (accepted); delivery: shadow dual-write + rebuild + CI determinism proof",
+      "status": "promoted",
+      "supporting_checkpoints": [
+        "6cd587dc",
+        "7a204902"
+      ]
+    },
+    {
+      "id": "CKR-2",
+      "title": "cutover completeness",
+      "metric": "teammate_visible_tables == 8/8 and migrated_row_loss == 0",
+      "maps_to": "US-028b",
+      "discovery_delivery_balance": "discovery: DKR-3 migration hash-equality + DKR-4 merge semantics (accepted); delivery: watermark replay (stat short-circuit from start), ULID ids, generated views, migrate-to-events with 3 DKR-3 clauses, causal audit per DKR-4",
+      "status": "promoted_design",
+      "supporting_checkpoints": [
+        "f4477798",
+        "069a7673"
+      ]
+    },
+    {
+      "id": "CKR-3",
+      "title": "sustained operation",
+      "metric": "write_latency_ms_p95 <= 100 at 10k events; log growth bounded per ratified retention policy",
+      "maps_to": "US-028c",
+      "discovery_delivery_balance": "discovery: DKR-1 growth curve (accepted) \u2014 retention decision held to US-028c boundary as ratified, design shape pre-committed: event-count trigger ~5k + telemetry-age snapshotting; delivery: snapshots/compaction + events verify",
+      "status": "promoted_shape_only",
+      "supporting_checkpoints": [
+        "6cd587dc"
+      ]
+    }
+  ],
+  "pkrs": [
+    {
+      "id": "PKR-028a",
+      "scope": "US-028a story packet + shadow mode implementation units (emit stat-based watermark metadata from the start per DKR-2 next_unknowns)",
+      "linked_ckr": "CKR-1",
+      "source_dkr_checkpoint": "6cd587dc (DKR-1), 7a204902 (DKR-2) \u2014 accepted 2026-07-02 round 2",
+      "contribution_metric": "rebuild_determinism == 1",
+      "hand_back_rule": "hand back on unknown discovery instead of researching inside execution",
+      "status": "promoted_ready_for_authoring",
+      "gate": "implementation start requires human approval (high-risk lane envelope gate)"
+    },
+    {
+      "id": "PKR-028b",
+      "scope": "US-028b cutover units (watermark replay with stat short-circuit, ULID ids, generated views, migrate-to-events with DKR-3 clauses, causal concurrent-update audit)",
+      "linked_ckr": "CKR-2",
+      "source_dkr_checkpoint": "f4477798 (DKR-3), 069a7673 (DKR-4) \u2014 accepted 2026-07-02 round 2",
+      "contribution_metric": "teammate_visible_tables == 8/8, migrated_row_loss == 0",
+      "hand_back_rule": "hand back on unknown discovery instead of researching inside execution",
+      "status": "design_promoted_execution_gated",
+      "gate": "cutover story US-028b requires human approval (envelope gate)"
+    },
+    {
+      "id": "PKR-028c",
+      "scope": "US-028c compaction/snapshots (event-count trigger ~5k, ~5MB raw secondary guard, telemetry-age snapshotting), hash chain, events verify",
+      "linked_ckr": "CKR-3",
+      "source_dkr_checkpoint": "6cd587dc (DKR-1) \u2014 accepted 2026-07-02 round 2",
+      "contribution_metric": "write_latency_ms_p95 <= 100 at 10k events",
+      "hand_back_rule": "hand back on unknown discovery instead of researching inside execution",
+      "status": "candidate",
+      "gate": "telemetry retention policy ratified at US-028c boundary (envelope gate)"
+    }
+  ],
+  "supersedes": "tree.v1.json (round-1 candidate board)"
+}

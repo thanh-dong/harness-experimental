@@ -1,0 +1,99 @@
+{
+  "ckrs": [
+    {
+      "discovery_delivery_balance": "discovery: DKR-1/DKR-2 prove event shape and replay cost; delivery: shadow dual-write + rebuild + CI determinism proof",
+      "id": "CKR-1",
+      "maps_to": "US-028a",
+      "metric": "rebuild_determinism == 1 in CI on real data",
+      "status": "candidate",
+      "title": "shadow determinism"
+    },
+    {
+      "discovery_delivery_balance": "discovery: DKR-3 migration hash-equality, DKR-4 merge semantics; delivery: watermark replay, ULID ids, generated views, migrate-to-events",
+      "id": "CKR-2",
+      "maps_to": "US-028b",
+      "metric": "teammate_visible_tables == 8/8 and migrated_row_loss == 0",
+      "status": "candidate",
+      "title": "cutover completeness"
+    },
+    {
+      "discovery_delivery_balance": "discovery: DKR-1 growth curve; delivery: snapshots/compaction + events verify",
+      "id": "CKR-3",
+      "maps_to": "US-028c",
+      "metric": "write_latency_ms_p95 <= 100 at 10k events; log growth bounded per ratified retention policy",
+      "status": "candidate",
+      "title": "sustained operation"
+    }
+  ],
+  "dkrs": [
+    {
+      "budget": "1 discovery worker, ~30 turns",
+      "decision_target": "retention/compaction posture for US-028c; validates ratified track-all telemetry",
+      "id": "DKR-1",
+      "reduces_uncertainty_on": "pr_reviewability drift, log growth",
+      "scope": "replay this repo's real history through the event shape; measure log growth with/without telemetry ops",
+      "status": "candidate"
+    },
+    {
+      "budget": "1 discovery worker, ~30 turns",
+      "decision_target": "fund vs redesign the US-028b write path",
+      "id": "DKR-2",
+      "reduces_uncertainty_on": "write_latency_ms_p95 <= 100",
+      "scope": "prototype watermark incremental replay; measure apply cost at 1k/10k/100k events",
+      "status": "candidate"
+    },
+    {
+      "budget": "1 discovery worker, ~20 turns",
+      "decision_target": "promote migrate-to-events PKRs (this probe is the migration dry-run)",
+      "id": "DKR-3",
+      "reduces_uncertainty_on": "migrated_row_loss == 0",
+      "scope": "synthesize genesis events from the populated v6 DB; hash-compare rebuilt vs original",
+      "status": "candidate"
+    },
+    {
+      "budget": "1 discovery worker, ~15 turns",
+      "decision_target": "confirm ratified LWW+audit shows no silent loss; audit window semantics",
+      "id": "DKR-4",
+      "reduces_uncertainty_on": "silent data loss in merge semantics",
+      "scope": "simulate concurrent same-field story.update under ULID ordering with skewed clocks",
+      "status": "candidate"
+    }
+  ],
+  "frame_version": "v1",
+  "orchestrator": {
+    "admissibility": "screens every move against fresh anti-goal reads or a dry-run before dispatch",
+    "dkr_learning_gate": "Candidate CKRs and candidate PKRs are not promoted until the orchestrator accepts the supporting DKR learning checkpoint.",
+    "frame_authority": "read-only; reject any attempted frame, guardrail, metric, threshold, or action-envelope change unless the human ratifies it",
+    "owns": "objective checks, check-ins, the OKR board, and subagent steering until the objective metric reaches target (teammate_visible_tables == 8/8 with rebuild_determinism == 1) or a human/blocking flag stops the loop"
+  },
+  "pkrs": [
+    {
+      "contribution_metric": "rebuild_determinism == 1",
+      "hand_back_rule": "hand back on unknown discovery instead of researching inside execution",
+      "id": "PKR-028a",
+      "linked_ckr": "CKR-1",
+      "scope": "US-028a story packet + shadow mode implementation units",
+      "source_dkr_checkpoint": "pending DKR-1, DKR-2",
+      "status": "candidate"
+    },
+    {
+      "contribution_metric": "teammate_visible_tables == 8/8, migrated_row_loss == 0",
+      "hand_back_rule": "hand back on unknown discovery instead of researching inside execution",
+      "id": "PKR-028b",
+      "linked_ckr": "CKR-2",
+      "scope": "US-028b cutover units (watermark replay, ULID ids, generated views, migrate-to-events)",
+      "source_dkr_checkpoint": "pending DKR-3, DKR-4",
+      "status": "candidate"
+    },
+    {
+      "contribution_metric": "write_latency_ms_p95 <= 100 at 10k events",
+      "hand_back_rule": "hand back on unknown discovery instead of researching inside execution",
+      "id": "PKR-028c",
+      "linked_ckr": "CKR-3",
+      "scope": "US-028c compaction/snapshots, hash chain, events verify",
+      "source_dkr_checkpoint": "pending DKR-1",
+      "status": "candidate"
+    }
+  ],
+  "tree_version": "v1"
+}

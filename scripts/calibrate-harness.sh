@@ -132,6 +132,26 @@ hc trace --summary "detailed tier trace" --outcome completed --agent claude \
 check "trace/detailed" "Tier achieved: detailed (3/3)" "$(hc score-trace)"
 rm -rf "$WS"
 
+echo "=== event-log calibration (US-028b rebuild goldens) ==="
+
+# E0 — deterministic rebuild: same log, two rebuilds, identical dump hash.
+WS=$(setup)
+hc story add --id US-9 --title "golden story" --lane normal >/dev/null
+hc story update --id US-9 --status implemented --unit 1 >/dev/null
+h1=$(hc rebuild | tail -1)
+h2=$(hc rebuild | tail -1)
+check "rebuild/deterministic" "$h1" "$h2"
+check "rebuild/hash-present" "dump hash: " "$h1"
+rm -rf "$WS"
+
+# E1 — corrupted log line: rebuild refuses instead of guessing.
+WS=$(setup)
+hc story add --id US-9 --title "golden story" --lane normal >/dev/null
+printf '{not json\n' >> "$WS"/.harness/events/*.jsonl
+out=$(hc rebuild 2>&1)
+check "rebuild/refuses-corrupt" "corrupt event log" "$out"
+rm -rf "$WS"
+
 echo
 if [ "$FAIL" -eq 0 ]; then
   echo "calibration ok: $PASS checks passed"

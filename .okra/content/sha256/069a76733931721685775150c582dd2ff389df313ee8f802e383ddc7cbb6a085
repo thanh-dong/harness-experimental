@@ -1,0 +1,67 @@
+{
+  "dkr_id": "DKR-4",
+  "decision_target": "Open Question 2 (ratified): does LWW + audit, ordered by (event_id ULID, writer), avoid SILENT loss of concurrent story.update fields under clock skew? Validate — do not redesign.",
+  "evidence": [
+    {
+      "claim": "Rebuild determinism holds for concurrent updates: replay is invariant to git-union merge order because (event_id ULID, writer) is a unique total order. This is rebuild_determinism==1 for the concurrent-update case.",
+      "source": "scratchpad/dkr-4/sim.py replay()+permute_merge_orders(); spec 'Ordering and conflict semantics' lines 118-125",
+      "numbers": "10/10 scenarios (5 skews x same-field & different-field) produced exactly 1 distinct final state across every file-permutation AND within-file-reversal merge order. distinct_final_states==1 in all."
+    },
+    {
+      "claim": "Inserts commute and different-field updates never conflict — only same-field cross-writer updates are LWW collisions.",
+      "source": "sim.py replay() (field-level apply) + different-field determinism runs",
+      "numbers": "different_field scenarios: deterministic at all 5 skews, no collision recorded."
+    },
+    {
+      "claim": "LWW-by-ULID picks the WRONG (not semantically-last) writer whenever a lagging clock lowers that writer's ULID timestamp. This is the core semantic risk, and it triggers at small skew, not just extreme skew.",
+      "source": "sim.py wrong_winner block; scenario: writer A acts first, writer B acts 1000ms later in real time but B's clock lags by skew",
+      "numbers": "correct winner in 1/5 skews (only 0s). Wrong in 2s, 30s, 5min, 1h (4/5). At 2s skew the 1000ms-later human action already loses."
+    },
+    {
+      "claim": "A wall-clock 'merge window' audit STRUCTURALLY misses collisions when skew exceeds the window — i.e. it produces silent loss for exactly the cases where LWW is most wrong.",
+      "source": "sim.py audit_wall_window() vs concurrent_same_field_pairs() ground truth",
+      "numbers": "5min window: 4 collisions flagged, 1 MISSED (the 1h-skew pair, ULIDs ~1h apart) => 1 silent loss. General: for any finite window W, skew>W => miss."
+    },
+    {
+      "claim": "A CAUSAL audit (flag every cross-writer same-field pair that is concurrent in the git merge) catches 100% of collisions regardless of skew, and the losing event is always recoverable from the append-only log.",
+      "source": "sim.py audit_causal() + loser-recoverability check",
+      "numbers": "causal: 5/5 collisions flagged, 0 missed, loser_recoverable_from_log==true in every case. 1h window catches 5/5 only because 1h is the max skew tested — not a general guarantee."
+    }
+  ],
+  "questions_answered": [
+    "Q: Is replay deterministic under skew regardless of merge order? A: Yes, provably — (event_id ULID, writer) is a unique total order; sort-then-apply is merge-order-invariant. Confirmed across all permutations.",
+    "Q: Does the per-writer monotonic ULID keep same-ms same-writer events ordered? A: Yes — monotonic-random increment within a ms preserves intra-writer order; cross-writer ties break on the writer field.",
+    "Q: Is the losing event still observable? A: Yes — append-only log never deletes; loser recoverable in 100% of cases.",
+    "Q: When does 'last writer by ULID' != 'last human action'? A: Whenever a writer's local clock lags by more than the real inter-action gap. Demonstrated flipping at >=2s skew for a 1s inter-action gap.",
+    "Q: Does the audit catch every wrong-clock case? A: Only if the audit is causal. A wall-clock window does NOT — it misses skew>window, which is precisely the silent-loss zone."
+  ],
+  "questions_unanswered": [
+    "False-positive behavior of a causal audit for genuinely sequential same-field edits where one writer HAD pulled the other's change before editing (a happens-before). The sim models pure concurrency (no cross-writer reads), so FP was not exercised — needs the observed-watermark or merge-base signal to test.",
+    "Real-world skew distribution across the team's clones (how often skew actually exceeds a candidate window). DKR-1's log-growth data does not cover clock behavior.",
+    "Alert volume of a causal audit at scale — how noisy 'every concurrent same-field pair' is on a busy multi-writer log (bounded by phase-3 compaction window?)."
+  ],
+  "confidence_update": "P(no silent loss under ratified LWW+audit) ~ 0.97 IF the audit is defined causally; ~0.55 if 'merge window' is implemented as a wall-clock window (silent loss is then structural for skew>window). The ratified contract is achievable; the risk is entirely in how 'merge window' gets operationalized in US-028b.",
+  "risk_or_anti_goal_implications": {
+    "migrated_row_loss / silent-loss tripwire": "LWW itself never loses log records (loser stays visible), so migrated_row_loss==0 is safe. The exposure is SEMANTIC loss (wrong field value wins) going UNAUDITED — which a wall-clock window would allow. Bind this tripwire to the causal audit, not a time window.",
+    "rebuild_determinism==1": "Confirmed safe for concurrent updates; no threat found.",
+    "merge_conflict_count==0": "Unaffected — per-writer files still union cleanly; conflict resolution is semantic (replay), not textual.",
+    "no new anti-goal needed": "The existing frozen set covers this once the silent-loss check is wired to causal detection. No frame change requested."
+  },
+  "promotion_recommendation": {
+    "status": "PROMOTE the ratified LWW+audit contract to US-028b design UNCHANGED in mechanism, with ONE binding clarification on the audit definition.",
+    "recommended_audit_window": "CAUSAL, not wall-clock. Define the audit trigger as: flag any two story.update events from DIFFERENT writers targeting the SAME (row, field) that are CONCURRENT in the merge — neither writer had observed the other's event when it appended. Implement via one of: (a) zero-schema fallback — git merge-base concurrency at merge time (both events added on branches that diverged from a common ancestor); or (b) preferred, transport-agnostic — add a lightweight 'observed' watermark to each event (per-writer consumed counts at append time) so replay detects concurrency without git. Concurrency = neither event in the other's observed set. Explicitly REJECT a pure wall-clock time window: for any window W a skew>W yields silent loss (5min window already misses the 1h case in-sim). If a time bound is wanted for alert throttling, layer it ON TOP of causal detection (throttle display), never AS the detection.",
+    "rationale": "Causal audit makes LWW observable in 100% of collisions independent of clock health; wall-clock windows reintroduce exactly the silent loss the audit exists to prevent."
+  },
+  "next_unknowns": [
+    "Design the observed-watermark event field (or confirm merge-base detection is reliable for per-writer append-only files) — feeds US-028b design.md.",
+    "Measure causal-audit false-positive/alert-volume on a realistic multi-writer log (pairs with DKR log-growth data).",
+    "Decide the audit surface: new event op (audit.concurrent_update emitted at replay) vs generated-view section, so it travels in git and is itself deterministic."
+  ],
+  "artifacts": [
+    "/private/tmp/claude-501/-Users-thanhdq-sources--folks-harness-repository-cc/6b37c7a4-e0d0-4625-9d0e-3a8e081d32d2/scratchpad/dkr-4/sim.py",
+    "/private/tmp/claude-501/-Users-thanhdq-sources--folks-harness-repository-cc/6b37c7a4-e0d0-4625-9d0e-3a8e081d32d2/scratchpad/dkr-4/start.json",
+    "/private/tmp/claude-501/-Users-thanhdq-sources--folks-harness-repository-cc/6b37c7a4-e0d0-4625-9d0e-3a8e081d32d2/scratchpad/dkr-4/matrix.json",
+    "/private/tmp/claude-501/-Users-thanhdq-sources--folks-harness-repository-cc/6b37c7a4-e0d0-4625-9d0e-3a8e081d32d2/scratchpad/dkr-4/finish.json"
+  ],
+  "status": "complete"
+}

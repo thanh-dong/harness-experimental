@@ -5,7 +5,14 @@ use std::process::Command;
 use std::str::FromStr;
 
 use rusqlite::{params, types::ValueRef, Connection, OptionalExtension};
+use serde_json::Value as JsonValue;
 use thiserror::Error;
+
+use crate::events::{
+    fnv1a64, fnv1a64_continue, genesis_ulid, mint_ulid, rfc3339_from_unix, rfc3339_utc_now,
+    unix_from_sqlite_datetime, EventLog,
+};
+use serde_json::json;
 
 use crate::application::{
     BacklogAddInput, BacklogCloseInput, BrownfieldImportResult, DecisionAddInput,
@@ -16,7 +23,7 @@ use crate::application::{
 use crate::domain::{
     compiled_tool_registry, normalize_token, score_context, score_trace, validate_tool_description,
     AuditFinding, AuditResult, BacklogFilter, BacklogRecord, ContextScoreResult,
-    ContextScoreSource, DecisionRecord, FrictionRecord, HarnessStats, ImprovementProposal,
+    ContextScoreSource, CsvList, DecisionRecord, FrictionRecord, HarnessStats, ImprovementProposal,
     IntakeRecord, InterventionRecord, RiskLane, StoryMatrixRecord, StorySignalRecord,
     StoryVerifyAllItem, StoryVerifyAllResult, StoryVerifyStatus, ToolArgSpec, ToolEntry,
     TraceRecord, TraceScoreResult, TraceScoreSource,
@@ -46,14 +53,22 @@ pub enum HarnessInfraError {
     ToolCommandNotFound(String),
     #[error("{0}")]
     ToolValidation(#[from] crate::domain::ToolValidationError),
-    #[error("backlog close: backlog item '{0}' not found")]
-    BacklogNotFound(i64),
-    #[error("trace '{0}' not found")]
-    TraceNotFound(i64),
+    #[error("{0} id '{1}' not found")]
+    RowIdNotFound(String, String),
+    #[error("ambiguous {0} id prefix '{1}': matches {2}")]
+    AmbiguousRowId(String, String, String),
     #[error("no traces found")]
     NoTraces,
     #[error("story update: nothing to update")]
     EmptyStoryUpdate,
+    #[error("rebuild: corrupt event log {0}: {1}")]
+    CorruptEventLog(String, String),
+    #[error("migrate-to-events verification failed: {0}")]
+    MigrationVerifyFailed(String),
+    #[error("this database has rows but is not event-backed. Run: harness-cli migrate-to-events")]
+    NotEventBacked,
+    #[error("import brownfield is migration-only (decision 0008 Q4): it may only seed a database that is not yet event-backed")]
+    BrownfieldOnEventBacked,
     #[error("sqlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
     #[error("io error: {0}")]
@@ -75,22 +90,22 @@ pub trait HarnessRepository {
     fn init(&self) -> Result<InitResult>;
     fn migrate(&self) -> Result<MigrateResult>;
     fn import_brownfield(&self) -> Result<BrownfieldImportResult>;
-    fn record_intake(&self, input: IntakeInput) -> Result<i64>;
+    fn record_intake(&self, input: IntakeInput) -> Result<String>;
     fn add_story(&self, input: StoryAddInput) -> Result<()>;
     fn update_story(&self, input: StoryUpdateInput) -> Result<()>;
     fn verify_story(&self, id: &str) -> Result<StoryVerifyResult>;
     fn verify_all_stories(&self) -> Result<StoryVerifyAllResult>;
     fn add_decision(&self, input: DecisionAddInput) -> Result<()>;
     fn verify_decision(&self, id: &str) -> Result<DecisionVerifyResult>;
-    fn add_backlog(&self, input: BacklogAddInput) -> Result<i64>;
+    fn add_backlog(&self, input: BacklogAddInput) -> Result<String>;
     fn close_backlog(&self, input: BacklogCloseInput) -> Result<()>;
     fn register_tool(&self, input: ToolRegisterInput) -> Result<()>;
     fn remove_tool(&self, name: &str) -> Result<()>;
     fn check_tools(&self, name: Option<String>) -> Result<Vec<ToolCheckResult>>;
-    fn add_intervention(&self, input: InterventionAddInput) -> Result<i64>;
-    fn record_trace(&self, input: TraceInput) -> Result<i64>;
-    fn score_trace(&self, id: Option<i64>) -> Result<TraceScoreResult>;
-    fn score_context(&self, id: i64) -> Result<ContextScoreResult>;
+    fn add_intervention(&self, input: InterventionAddInput) -> Result<String>;
+    fn record_trace(&self, input: TraceInput) -> Result<String>;
+    fn score_trace(&self, id: Option<String>) -> Result<TraceScoreResult>;
+    fn score_context(&self, id: &str) -> Result<ContextScoreResult>;
     fn story_verify_status(&self, id: &str) -> Result<StoryVerifyStatus>;
     fn query_matrix(&self) -> Result<Vec<StoryMatrixRecord>>;
     fn query_backlog(&self, filter: BacklogFilter) -> Result<Vec<BacklogRecord>>;
@@ -104,7 +119,7 @@ pub trait HarnessRepository {
         capability: Option<String>,
     ) -> Result<Vec<ToolEntry>>;
     fn query_interventions(&self, filter: InterventionFilter) -> Result<Vec<InterventionRecord>>;
-    fn add_story_signal(&self, input: StorySignalAddInput) -> Result<i64>;
+    fn add_story_signal(&self, input: StorySignalAddInput) -> Result<String>;
     fn query_story_signals(&self, filter: StorySignalFilter) -> Result<Vec<StorySignalRecord>>;
     fn query_stats(&self) -> Result<HarnessStats>;
     fn audit(&self) -> Result<AuditResult>;
@@ -117,15 +132,330 @@ pub struct SqliteHarnessRepository {
     repo_root: PathBuf,
     db_path: PathBuf,
     schema_dir: PathBuf,
+    // US-028b: the event log is the write of record; the repository owns the
+    // writer identity and appends before the cache commit.
+    events: EventLog,
 }
 
 impl SqliteHarnessRepository {
     pub fn new(repo_root: PathBuf, db_path: PathBuf, schema_dir: PathBuf) -> Self {
+        let events = EventLog::new(&repo_root);
         Self {
             repo_root,
             db_path,
             schema_dir,
+            events,
         }
+    }
+
+    fn events_dir(&self) -> PathBuf {
+        self.repo_root.join(".harness/events")
+    }
+
+    fn list_event_files(&self) -> Result<Vec<PathBuf>> {
+        let events_dir = self.events_dir();
+        let mut files = Vec::new();
+        if events_dir.is_dir() {
+            for entry in fs::read_dir(&events_dir)? {
+                let path = entry?.path();
+                if path.extension().and_then(|value| value.to_str()) == Some("jsonl") {
+                    files.push(path);
+                }
+            }
+        }
+        files.sort();
+        Ok(files)
+    }
+
+    fn ensure_event_backed(connection: &Connection) -> Result<()> {
+        if Self::cache_meta_get(connection, "event_backed")?.as_deref() == Some("true") {
+            Ok(())
+        } else {
+            Err(HarnessInfraError::NotEventBacked)
+        }
+    }
+
+    /// The cutover write path: apply the event to the cache inside a
+    /// transaction (SQLite constraints validate it before it can reach the
+    /// log), append it to this writer's file (fsync), advance the watermark,
+    /// then commit. A crash between append and commit leaves the cache behind
+    /// the log — healed by watermark replay on the next command. The cache is
+    /// only ever written from events, so cache and log cannot drift.
+    fn append_and_apply(
+        &self,
+        connection: &Connection,
+        op: &str,
+        payload: JsonValue,
+    ) -> Result<()> {
+        Self::ensure_event_backed(connection)?;
+        let tx = connection.unchecked_transaction()?;
+        let file_name = self.events.file_name();
+        let previous: Option<(i64, i64, String)> = tx
+            .query_row(
+                "SELECT consumed_count, file_size, content_hash FROM event_watermark WHERE file=?1;",
+                params![file_name],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        let (prev_count, prev_size, prev_hash) = match previous {
+            Some((count, size, hash)) => (
+                count,
+                size,
+                u64::from_str_radix(&hash, 16).unwrap_or(0xcbf2_9ce4_8422_2325),
+            ),
+            None => (0, 0, 0xcbf2_9ce4_8422_2325),
+        };
+
+        // Causal-audit signal (DKR-4): what this writer had consumed of every
+        // writer's file when it appended.
+        let mut observed = serde_json::Map::new();
+        {
+            let mut statement = tx.prepare("SELECT file, consumed_count FROM event_watermark;")?;
+            let rows = statement.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?;
+            for (file, count) in collect_rows(rows)? {
+                let writer = file.trim_end_matches(".jsonl").to_owned();
+                observed.insert(writer, json!(count));
+            }
+        }
+
+        let event = LogEvent {
+            event_id: mint_ulid(),
+            writer: self.events.writer().to_owned(),
+            recorded_at: rfc3339_utc_now(),
+            op: op.to_owned(),
+            payload,
+            observed: Some(JsonValue::Object(observed)),
+            writer_seq: prev_count + 1,
+        };
+        apply_event(&tx, &event)?;
+
+        let line = EventLog::event_line(
+            &event.event_id,
+            &event.writer,
+            &event.recorded_at,
+            &event.op,
+            &event.payload,
+            event.observed.as_ref(),
+        );
+        self.events.append_line(&line)?;
+        let mut appended = line.into_bytes();
+        appended.push(b'\n');
+        let new_hash = fnv1a64_continue(prev_hash, &appended);
+        let mtime_ns = file_mtime_ns(&self.events.own_file_path())?;
+        Self::write_watermark(
+            &tx,
+            &file_name,
+            prev_count + 1,
+            prev_size + appended.len() as i64,
+            mtime_ns,
+            &format!("{new_hash:016x}"),
+        )?;
+        tx.commit()?;
+
+        if matches!(
+            event.op.as_str(),
+            "story.add"
+                | "story.update"
+                | "story.verify_result"
+                | "backlog.add"
+                | "backlog.close"
+                | "decision.add"
+                | "decision.verify_result"
+        ) {
+            self.regenerate_views(connection)?;
+        }
+        Ok(())
+    }
+
+    /// Record watermarks for every log file as fully consumed.
+    fn write_watermarks_for_all_files(&self, connection: &Connection) -> Result<()> {
+        connection.execute("DELETE FROM event_watermark;", [])?;
+        for path in self.list_event_files()? {
+            let bytes = fs::read(&path)?;
+            let count = bytes
+                .split(|byte| *byte == b'\n')
+                .filter(|line| !line.is_empty())
+                .count() as i64;
+            let name = path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default()
+                .to_owned();
+            Self::write_watermark(
+                connection,
+                &name,
+                count,
+                bytes.len() as i64,
+                file_mtime_ns(&path)?,
+                &format!("{:016x}", fnv1a64(&bytes)),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Full rebuild of the primary cache from the log, marking it
+    /// event-backed with fresh watermarks.
+    fn rebuild_primary_cache(&self) -> Result<Connection> {
+        let events = self.read_event_log()?;
+        let connection = self.build_cache_from_events(&events, &self.db_path)?;
+        connection.pragma_update(None, "foreign_keys", "ON")?;
+        Self::cache_meta_set(&connection, "event_backed", "true")?;
+        self.write_watermarks_for_all_files(&connection)?;
+        self.regenerate_views(&connection)?;
+        Ok(connection)
+    }
+
+    /// Every command goes through here (US-028b): compare per-file watermarks
+    /// (stat short-circuit), incrementally replay new events (e.g. after
+    /// `git pull`), rebuild from genesis when the log shrank or diverged, and
+    /// auto-rebuild a missing cache (fresh clone).
+    fn open_fresh(&self) -> Result<Connection> {
+        if !self.db_path.exists() {
+            if !self.list_event_files()?.is_empty() {
+                return self.rebuild_primary_cache();
+            }
+            return Err(HarnessInfraError::MissingDatabase(
+                self.db_path.display().to_string(),
+            ));
+        }
+
+        let connection = self.open_existing()?;
+        if Self::cache_meta_get(&connection, "event_backed")?.as_deref() != Some("true") {
+            // Legacy cache: reads work as before; mutations are guarded by
+            // ensure_event_backed and point at migrate-to-events.
+            return Ok(connection);
+        }
+
+        let mut new_events: Vec<LogEvent> = Vec::new();
+        let mut watermark_updates: Vec<(String, i64, i64, i64, String)> = Vec::new();
+        let mut seen_files: Vec<String> = Vec::new();
+        let mut need_rebuild = false;
+
+        for path in self.list_event_files()? {
+            let name = path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default()
+                .to_owned();
+            seen_files.push(name.clone());
+            let metadata = fs::metadata(&path)?;
+            let size = metadata.len() as i64;
+            let mtime_ns = file_mtime_ns(&path)?;
+            let watermark: Option<(i64, i64, i64, String)> = connection
+                .query_row(
+                    "SELECT consumed_count, file_size, file_mtime_ns, content_hash
+                     FROM event_watermark WHERE file=?1;",
+                    params![name],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .optional()?;
+
+            match watermark {
+                Some((count, wm_size, wm_mtime, wm_hash)) => {
+                    if wm_size == size && wm_mtime == mtime_ns {
+                        continue; // stat short-circuit (DKR-2)
+                    }
+                    let bytes = fs::read(&path)?;
+                    let consumed = wm_size.max(0) as usize;
+                    if bytes.len() >= consumed
+                        && format!("{:016x}", fnv1a64(&bytes[..consumed])) == wm_hash
+                    {
+                        // Incremental: only the appended suffix is new.
+                        let display = path.display().to_string();
+                        for (offset, line) in String::from_utf8_lossy(&bytes[consumed..])
+                            .lines()
+                            .enumerate()
+                        {
+                            if line.trim().is_empty() {
+                                continue;
+                            }
+                            new_events.push(parse_event_line(
+                                line,
+                                &display,
+                                count as usize + offset,
+                            )?);
+                        }
+                        watermark_updates.push((
+                            name,
+                            count
+                                + bytes[consumed..]
+                                    .split(|byte| *byte == b'\n')
+                                    .filter(|line| !line.is_empty())
+                                    .count() as i64,
+                            bytes.len() as i64,
+                            mtime_ns,
+                            format!("{:016x}", fnv1a64(&bytes)),
+                        ));
+                    } else {
+                        // Shrank or diverged: the log is the truth — rebuild.
+                        need_rebuild = true;
+                        break;
+                    }
+                }
+                None => {
+                    // A new writer file (e.g. first pull from a teammate).
+                    let bytes = fs::read(&path)?;
+                    let display = path.display().to_string();
+                    for (index, line) in String::from_utf8_lossy(&bytes).lines().enumerate() {
+                        if line.trim().is_empty() {
+                            continue;
+                        }
+                        new_events.push(parse_event_line(line, &display, index)?);
+                    }
+                    watermark_updates.push((
+                        name,
+                        bytes
+                            .split(|byte| *byte == b'\n')
+                            .filter(|line| !line.is_empty())
+                            .count() as i64,
+                        bytes.len() as i64,
+                        mtime_ns,
+                        format!("{:016x}", fnv1a64(&bytes)),
+                    ));
+                }
+            }
+        }
+
+        // A watermarked file that vanished means applied events no longer
+        // exist in the log: rebuild from what remains.
+        if !need_rebuild {
+            let mut statement = connection.prepare("SELECT file FROM event_watermark;")?;
+            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+            for file in collect_rows(rows)? {
+                if !seen_files.contains(&file) {
+                    need_rebuild = true;
+                    break;
+                }
+            }
+        }
+
+        if need_rebuild {
+            drop(connection);
+            return self.rebuild_primary_cache();
+        }
+        if new_events.is_empty() {
+            return Ok(connection);
+        }
+
+        new_events.sort_by(|left, right| {
+            (left.event_id.as_str(), left.writer.as_str())
+                .cmp(&(right.event_id.as_str(), right.writer.as_str()))
+        });
+        // Replay tolerates cross-writer references arriving in log order.
+        connection.pragma_update(None, "foreign_keys", "OFF")?;
+        let tx = connection.unchecked_transaction()?;
+        for event in &new_events {
+            apply_event(&tx, event)?;
+        }
+        for (file, count, size, mtime_ns, hash) in &watermark_updates {
+            Self::write_watermark(&tx, file, *count, *size, *mtime_ns, hash)?;
+        }
+        tx.commit()?;
+        connection.pragma_update(None, "foreign_keys", "ON")?;
+        self.regenerate_views(&connection)?;
+        Ok(connection)
     }
 
     fn open_existing(&self) -> Result<Connection> {
@@ -208,6 +538,39 @@ impl SqliteHarnessRepository {
         }
         files.sort_by_key(|(version, _)| *version);
         Ok(files)
+    }
+
+    /// Resolve a row id given exactly or as an unambiguous prefix (US-028b:
+    /// ULID ids keep `--id <x>` ergonomics via prefixes; legacy numeric ids
+    /// match exactly first).
+    fn resolve_row_id(connection: &Connection, table: &str, given: &str) -> Result<String> {
+        let exact: Option<String> = connection
+            .query_row(
+                &format!("SELECT id FROM {table} WHERE id=?1;"),
+                params![given],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(id) = exact {
+            return Ok(id);
+        }
+        let mut statement = connection.prepare(&format!(
+            "SELECT id FROM {table} WHERE id LIKE ?1 || '%' ORDER BY id LIMIT 11;"
+        ))?;
+        let rows = statement.query_map(params![given], |row| row.get::<_, String>(0))?;
+        let matches = collect_rows(rows)?;
+        match matches.len() {
+            0 => Err(HarnessInfraError::RowIdNotFound(
+                table.to_owned(),
+                given.to_owned(),
+            )),
+            1 => Ok(matches.into_iter().next().expect("one match")),
+            _ => Err(HarnessInfraError::AmbiguousRowId(
+                table.to_owned(),
+                given.to_owned(),
+                matches.join(", "),
+            )),
+        }
     }
 
     fn import_matrix(&self, connection: &Connection) -> Result<usize> {
@@ -399,15 +762,23 @@ impl SqliteHarnessRepository {
 
             connection.execute(
                 "INSERT INTO backlog (
-                    title, discovered_while, current_pain, suggested_improvement,
+                    id, title, discovered_while, current_pain, suggested_improvement,
                     risk, status, notes
                  )
-                 SELECT ?1, ?2, ?3, ?4, ?5, ?6,
+                 SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7,
                     'Imported from docs/HARNESS_BACKLOG.md by harness import brownfield.'
                  WHERE NOT EXISTS (
-                    SELECT 1 FROM backlog WHERE title=?1
+                    SELECT 1 FROM backlog WHERE title=?2
                  );",
-                params![item.title, discovered, pain, suggestion, risk, status],
+                params![
+                    mint_ulid(),
+                    item.title,
+                    discovered,
+                    pain,
+                    suggestion,
+                    risk,
+                    status
+                ],
             )?;
             imported += 1;
         }
@@ -438,6 +809,9 @@ impl HarnessRepository for SqliteHarnessRepository {
         let connection = self.open_or_create()?;
         self.apply_schema_v1(&connection)?;
         self.apply_pending_migrations(&connection, 1)?;
+        // A fresh database is event-backed from genesis: its (empty) log is
+        // the source of truth from the first write.
+        Self::cache_meta_set(&connection, "event_backed", "true")?;
         Ok(InitResult::Created {
             db_path: self.db_path.clone(),
         })
@@ -455,10 +829,37 @@ impl HarnessRepository for SqliteHarnessRepository {
     }
 
     fn import_brownfield(&self) -> Result<BrownfieldImportResult> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
+        // Post-cutover, brownfield import is migration-only (decision 0008
+        // Q4). On a pristine event-backed cache (fresh init, empty log) it
+        // still works as the one-time seed: import via the legacy path, then
+        // re-run the genesis migration so every imported row becomes a
+        // proven event. Anything else must not bypass the log.
+        let event_backed =
+            Self::cache_meta_get(&connection, "event_backed")?.as_deref() == Some("true");
+        if event_backed {
+            let durable_rows: i64 = connection.query_row(
+                "SELECT (SELECT COUNT(*) FROM intake) + (SELECT COUNT(*) FROM story)
+                      + (SELECT COUNT(*) FROM decision) + (SELECT COUNT(*) FROM backlog)
+                      + (SELECT COUNT(*) FROM trace) + (SELECT COUNT(*) FROM tool)
+                      + (SELECT COUNT(*) FROM intervention) + (SELECT COUNT(*) FROM story_signal);",
+                [],
+                |row| row.get(0),
+            )?;
+            if durable_rows > 0 || !self.list_event_files()?.is_empty() {
+                return Err(HarnessInfraError::BrownfieldOnEventBacked);
+            }
+            Self::cache_meta_set(&connection, "event_backed", "false")?;
+        }
+
         let stories = self.import_matrix(&connection)?;
         let decisions = self.import_decisions(&connection)?;
         let backlog_items = self.import_backlog(&connection)?;
+        drop(connection);
+
+        if event_backed {
+            self.migrate_to_events()?;
+        }
 
         Ok(BrownfieldImportResult {
             stories,
@@ -467,41 +868,34 @@ impl HarnessRepository for SqliteHarnessRepository {
         })
     }
 
-    fn record_intake(&self, input: IntakeInput) -> Result<i64> {
-        let connection = self.open_existing()?;
-        connection.execute(
-            "INSERT INTO intake (
-                input_type, summary, risk_lane, risk_flags, affected_docs, story_id, notes
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7);",
-            params![
-                input.input_type.as_db_value(),
-                input.summary,
-                input.risk_lane.as_db_value(),
-                input.risk_flags.as_json_text(),
-                input.affected_docs.as_json_text(),
-                input.story_id,
-                input.notes,
-            ],
-        )?;
-
-        Ok(connection.last_insert_rowid())
+    fn record_intake(&self, input: IntakeInput) -> Result<String> {
+        let connection = self.open_fresh()?;
+        let id = mint_ulid();
+        let payload = json!({
+            "id": id,
+            "input_type": input.input_type.as_db_value(),
+            "summary": input.summary,
+            "risk_lane": input.risk_lane.as_db_value(),
+            "risk_flags": csv_payload(&input.risk_flags),
+            "affected_docs": csv_payload(&input.affected_docs),
+            "story_id": input.story_id,
+            "notes": input.notes,
+        });
+        self.append_and_apply(&connection, "intake.record", payload)?;
+        Ok(id)
     }
 
     fn add_story(&self, input: StoryAddInput) -> Result<()> {
-        let connection = self.open_existing()?;
-        connection.execute(
-            "INSERT INTO story (id, title, risk_lane, contract_doc, verify_command, notes)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6);",
-            params![
-                input.id,
-                input.title,
-                input.risk_lane.as_db_value(),
-                input.contract_doc,
-                input.verify_command,
-                input.notes,
-            ],
-        )?;
-        Ok(())
+        let connection = self.open_fresh()?;
+        let payload = json!({
+            "id": input.id,
+            "title": input.title,
+            "risk_lane": input.risk_lane.as_db_value(),
+            "contract_doc": input.contract_doc,
+            "verify_command": input.verify_command,
+            "notes": input.notes,
+        });
+        self.append_and_apply(&connection, "story.add", payload)
     }
 
     fn update_story(&self, input: StoryUpdateInput) -> Result<()> {
@@ -516,37 +910,45 @@ impl HarnessRepository for SqliteHarnessRepository {
             return Err(HarnessInfraError::EmptyStoryUpdate);
         }
 
-        let connection = self.open_existing()?;
-        connection.execute(
-            "UPDATE story SET
-                status=COALESCE(?1, status),
-                evidence=COALESCE(?2, evidence),
-                unit_proof=COALESCE(?3, unit_proof),
-                integration_proof=COALESCE(?4, integration_proof),
-                e2e_proof=COALESCE(?5, e2e_proof),
-                platform_proof=COALESCE(?6, platform_proof),
-                verify_command=COALESCE(?7, verify_command)
-             WHERE id=?8;",
-            params![
-                input.status,
-                input.evidence,
-                input.unit.map(|value| value.0),
-                input.integration.map(|value| value.0),
-                input.e2e.map(|value| value.0),
-                input.platform.map(|value| value.0),
-                input.verify_command,
-                input.id,
-            ],
-        )?;
-
-        if connection.changes() == 0 {
+        let connection = self.open_fresh()?;
+        let exists: Option<String> = connection
+            .query_row(
+                "SELECT id FROM story WHERE id=?1;",
+                params![input.id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if exists.is_none() {
             return Err(HarnessInfraError::StoryNotFound(input.id));
         }
-        Ok(())
+        let mut payload = serde_json::Map::new();
+        payload.insert("id".to_owned(), json!(input.id));
+        if let Some(status) = &input.status {
+            payload.insert("status".to_owned(), json!(status));
+        }
+        if let Some(evidence) = &input.evidence {
+            payload.insert("evidence".to_owned(), json!(evidence));
+        }
+        if let Some(flag) = &input.unit {
+            payload.insert("unit_proof".to_owned(), json!(flag.0));
+        }
+        if let Some(flag) = &input.integration {
+            payload.insert("integration_proof".to_owned(), json!(flag.0));
+        }
+        if let Some(flag) = &input.e2e {
+            payload.insert("e2e_proof".to_owned(), json!(flag.0));
+        }
+        if let Some(flag) = &input.platform {
+            payload.insert("platform_proof".to_owned(), json!(flag.0));
+        }
+        if let Some(verify_command) = &input.verify_command {
+            payload.insert("verify_command".to_owned(), json!(verify_command));
+        }
+        self.append_and_apply(&connection, "story.update", JsonValue::Object(payload))
     }
 
     fn verify_story(&self, id: &str) -> Result<StoryVerifyResult> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         let verify_command = connection
             .query_row(
                 "SELECT verify_command FROM story WHERE id=?1;",
@@ -570,11 +972,10 @@ impl HarnessRepository for SqliteHarnessRepository {
             "fail"
         }
         .to_owned();
-        connection.execute(
-            "UPDATE story
-             SET last_verified_at=datetime('now'), last_verified_result=?1
-             WHERE id=?2;",
-            params![result, id],
+        self.append_and_apply(
+            &connection,
+            "story.verify_result",
+            json!({"id": id, "result": result}),
         )?;
 
         Ok(StoryVerifyResult {
@@ -586,7 +987,7 @@ impl HarnessRepository for SqliteHarnessRepository {
     }
 
     fn verify_all_stories(&self) -> Result<StoryVerifyAllResult> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         let mut statement =
             connection.prepare("SELECT id, title, verify_command FROM story ORDER BY id;")?;
         let story_rows = statement.query_map([], |row| {
@@ -624,11 +1025,10 @@ impl HarnessRepository for SqliteHarnessRepository {
                 "fail"
             }
             .to_owned();
-            connection.execute(
-                "UPDATE story
-                 SET last_verified_at=datetime('now'), last_verified_result=?1
-                 WHERE id=?2;",
-                params![result, id],
+            self.append_and_apply(
+                &connection,
+                "story.verify_result",
+                json!({"id": id, "result": result}),
             )?;
             items.push(StoryVerifyAllItem {
                 id,
@@ -644,25 +1044,21 @@ impl HarnessRepository for SqliteHarnessRepository {
     }
 
     fn add_decision(&self, input: DecisionAddInput) -> Result<()> {
-        let connection = self.open_existing()?;
-        connection.execute(
-            "INSERT INTO decision (id, title, status, doc_path, verify_command, predicted_impact, notes)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7);",
-            params![
-                input.id,
-                input.title,
-                input.status,
-                input.doc_path,
-                input.verify_command,
-                input.predicted_impact,
-                input.notes,
-            ],
-        )?;
-        Ok(())
+        let connection = self.open_fresh()?;
+        let payload = json!({
+            "id": input.id,
+            "title": input.title,
+            "status": input.status,
+            "doc_path": input.doc_path,
+            "verify_command": input.verify_command,
+            "predicted_impact": input.predicted_impact,
+            "notes": input.notes,
+        });
+        self.append_and_apply(&connection, "decision.add", payload)
     }
 
     fn verify_decision(&self, id: &str) -> Result<DecisionVerifyResult> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         let verify_command = connection
             .query_row(
                 "SELECT verify_command FROM decision WHERE id=?1;",
@@ -681,11 +1077,10 @@ impl HarnessRepository for SqliteHarnessRepository {
             .current_dir(&self.repo_root)
             .status()?;
         let result = if status.success() { "pass" } else { "fail" }.to_owned();
-        connection.execute(
-            "UPDATE decision
-             SET last_verified_at=datetime('now'), last_verified_result=?1
-             WHERE id=?2;",
-            params![result, id],
+        self.append_and_apply(
+            &connection,
+            "decision.verify_result",
+            json!({"id": id, "result": result}),
         )?;
 
         Ok(DecisionVerifyResult {
@@ -694,39 +1089,32 @@ impl HarnessRepository for SqliteHarnessRepository {
         })
     }
 
-    fn add_backlog(&self, input: BacklogAddInput) -> Result<i64> {
-        let connection = self.open_existing()?;
-        connection.execute(
-            "INSERT INTO backlog (
-                title, discovered_while, current_pain, suggested_improvement,
-                risk, predicted_impact, notes
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7);",
-            params![
-                input.title,
-                input.discovered_while,
-                input.current_pain,
-                input.suggestion,
-                input.risk.map(|value| value.as_db_value().to_owned()),
-                input.predicted_impact,
-                input.notes,
-            ],
-        )?;
-        Ok(connection.last_insert_rowid())
+    fn add_backlog(&self, input: BacklogAddInput) -> Result<String> {
+        let connection = self.open_fresh()?;
+        let id = mint_ulid();
+        let payload = json!({
+            "id": id,
+            "title": input.title,
+            "discovered_while": input.discovered_while,
+            "current_pain": input.current_pain,
+            "suggested_improvement": input.suggestion,
+            "risk": input.risk.map(|value| value.as_db_value().to_owned()),
+            "predicted_impact": input.predicted_impact,
+            "notes": input.notes,
+        });
+        self.append_and_apply(&connection, "backlog.add", payload)?;
+        Ok(id)
     }
 
     fn close_backlog(&self, input: BacklogCloseInput) -> Result<()> {
-        let connection = self.open_existing()?;
-        connection.execute(
-            "UPDATE backlog
-             SET status=?1, actual_outcome=?2, implemented_at=datetime('now')
-             WHERE id=?3;",
-            params![input.status, input.actual_outcome, input.id],
-        )?;
-
-        if connection.changes() == 0 {
-            return Err(HarnessInfraError::BacklogNotFound(input.id));
-        }
-        Ok(())
+        let connection = self.open_fresh()?;
+        let id = Self::resolve_row_id(&connection, "backlog", &input.id)?;
+        let payload = json!({
+            "id": id,
+            "status": input.status,
+            "actual_outcome": input.actual_outcome,
+        });
+        self.append_and_apply(&connection, "backlog.close", payload)
     }
 
     fn register_tool(&self, input: ToolRegisterInput) -> Result<()> {
@@ -739,7 +1127,7 @@ impl HarnessRepository for SqliteHarnessRepository {
             return Err(HarnessInfraError::ToolCommandNotFound(input.command));
         }
 
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         let existing = connection
             .query_row(
                 "SELECT command FROM tool WHERE name=?1;",
@@ -751,36 +1139,38 @@ impl HarnessRepository for SqliteHarnessRepository {
             return Err(HarnessInfraError::ToolAlreadyExists(input.name, command));
         }
 
-        connection.execute(
-            "INSERT INTO tool
-                (name, provider, command, description, args, responsibility, since,
-                 kind, capability, scan_target, status)
-             VALUES (?1, 'custom', ?2, ?3, ?4, ?5, 'registered', ?6, ?7, ?8, 'unknown');",
-            params![
-                input.name,
-                input.command,
-                input.description,
-                tool_args_json(&input.args),
-                input.responsibility,
-                input.kind,
-                input.capability,
-                input.scan_target,
-            ],
-        )?;
-        Ok(())
+        // Machine-local scan state (status, checked_at) is never logged.
+        let payload = json!({
+            "name": input.name,
+            "command": input.command,
+            "description": input.description,
+            "args": tool_args_json(&input.args)
+                .and_then(|text| serde_json::from_str::<JsonValue>(&text).ok()),
+            "responsibility": input.responsibility,
+            "kind": input.kind,
+            "capability": input.capability,
+            "scan_target": input.scan_target,
+        });
+        self.append_and_apply(&connection, "tool.register", payload)
     }
 
     fn remove_tool(&self, name: &str) -> Result<()> {
-        let connection = self.open_existing()?;
-        connection.execute("DELETE FROM tool WHERE name=?1;", params![name])?;
-        if connection.changes() == 0 {
+        let connection = self.open_fresh()?;
+        let exists: Option<String> = connection
+            .query_row(
+                "SELECT name FROM tool WHERE name=?1;",
+                params![name],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if exists.is_none() {
             return Err(HarnessInfraError::ToolNotFound(name.to_owned()));
         }
-        Ok(())
+        self.append_and_apply(&connection, "tool.remove", json!({"name": name}))
     }
 
     fn check_tools(&self, name: Option<String>) -> Result<Vec<ToolCheckResult>> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         let mut statement = connection.prepare(
             "SELECT name, kind, command, scan_target, capability FROM tool
              WHERE (?1 IS NULL OR name = ?1)
@@ -816,70 +1206,83 @@ impl HarnessRepository for SqliteHarnessRepository {
         Ok(results)
     }
 
-    fn add_intervention(&self, input: InterventionAddInput) -> Result<i64> {
-        let connection = self.open_existing()?;
-        connection.execute(
-            "INSERT INTO intervention (trace_id, story_id, type, description, source, impact)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6);",
-            params![
-                input.trace_id,
-                input.story_id,
-                input.intervention_type,
-                input.description,
-                input.source,
-                input.impact,
-            ],
-        )?;
-        Ok(connection.last_insert_rowid())
+    fn add_intervention(&self, input: InterventionAddInput) -> Result<String> {
+        let connection = self.open_fresh()?;
+        let trace_id = input
+            .trace_id
+            .as_deref()
+            .map(|given| Self::resolve_row_id(&connection, "trace", given))
+            .transpose()?;
+        let id = mint_ulid();
+        let payload = json!({
+            "id": id,
+            "trace_id": trace_id,
+            "story_id": input.story_id,
+            "type": input.intervention_type,
+            "description": input.description,
+            "source": input.source,
+            "impact": input.impact,
+        });
+        self.append_and_apply(&connection, "intervention.add", payload)?;
+        Ok(id)
     }
 
-    fn add_story_signal(&self, input: StorySignalAddInput) -> Result<i64> {
-        let connection = self.open_existing()?;
-        connection.execute(
-            "INSERT INTO story_signal (story_id, trace_id, type, summary, component, notes)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6);",
-            params![
-                input.story_id,
-                input.trace_id,
-                input.signal_type,
-                input.summary,
-                input.component,
-                input.notes,
-            ],
-        )?;
-        Ok(connection.last_insert_rowid())
+    fn add_story_signal(&self, input: StorySignalAddInput) -> Result<String> {
+        let connection = self.open_fresh()?;
+        let trace_id = input
+            .trace_id
+            .as_deref()
+            .map(|given| Self::resolve_row_id(&connection, "trace", given))
+            .transpose()?;
+        let id = mint_ulid();
+        let payload = json!({
+            "id": id,
+            "story_id": input.story_id,
+            "trace_id": trace_id,
+            "type": input.signal_type,
+            "summary": input.summary,
+            "component": input.component,
+            "notes": input.notes,
+        });
+        self.append_and_apply(&connection, "signal.add", payload)?;
+        Ok(id)
     }
 
-    fn record_trace(&self, input: TraceInput) -> Result<i64> {
-        let connection = self.open_existing()?;
-        connection.execute(
-            "INSERT INTO trace (
-                task_summary, intake_id, story_id, agent,
-                actions_taken, files_read, files_changed, decisions_made, errors,
-                outcome, duration_seconds, token_estimate, harness_friction, notes
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14);",
-            params![
-                input.task_summary,
-                input.intake_id,
-                input.story_id,
-                input.agent,
-                input.actions.as_json_text(),
-                input.files_read.as_json_text(),
-                input.files_changed.as_json_text(),
-                input.decisions.as_json_text(),
-                input.errors.as_json_text(),
-                input.outcome,
-                input.duration_seconds,
-                input.token_estimate,
-                input.friction,
-                input.notes,
-            ],
-        )?;
-        Ok(connection.last_insert_rowid())
+    fn record_trace(&self, input: TraceInput) -> Result<String> {
+        let connection = self.open_fresh()?;
+        let intake_id = input
+            .intake_id
+            .as_deref()
+            .map(|given| Self::resolve_row_id(&connection, "intake", given))
+            .transpose()?;
+        let id = mint_ulid();
+        let payload = json!({
+            "id": id,
+            "task_summary": input.task_summary,
+            "intake_id": intake_id,
+            "story_id": input.story_id,
+            "agent": input.agent,
+            "actions_taken": csv_payload(&input.actions),
+            "files_read": csv_payload(&input.files_read),
+            "files_changed": csv_payload(&input.files_changed),
+            "decisions_made": csv_payload(&input.decisions),
+            "errors": csv_payload(&input.errors),
+            "outcome": input.outcome,
+            "duration_seconds": input.duration_seconds,
+            "token_estimate": input.token_estimate,
+            "harness_friction": input.friction,
+            "notes": input.notes,
+        });
+        self.append_and_apply(&connection, "trace.record", payload)?;
+        Ok(id)
     }
 
-    fn score_trace(&self, id: Option<i64>) -> Result<TraceScoreResult> {
-        let connection = self.open_existing()?;
+    fn score_trace(&self, id: Option<String>) -> Result<TraceScoreResult> {
+        let connection = self.open_fresh()?;
+        let id = id
+            .as_deref()
+            .map(|given| Self::resolve_row_id(&connection, "trace", given))
+            .transpose()?;
         let sql = match id {
             Some(_) => {
                 "SELECT
@@ -921,7 +1324,7 @@ impl HarnessRepository for SqliteHarnessRepository {
                     trace.notes
                  FROM trace
                  LEFT JOIN intake ON intake.id = trace.intake_id
-                 ORDER BY trace.id DESC
+                 ORDER BY trace.created_at DESC, trace.id DESC
                  LIMIT 1"
             }
         };
@@ -930,7 +1333,7 @@ impl HarnessRepository for SqliteHarnessRepository {
             connection
                 .query_row(sql, params![id], trace_score_source_from_row)
                 .optional()?
-                .ok_or(HarnessInfraError::TraceNotFound(id))?
+                .ok_or_else(|| HarnessInfraError::RowIdNotFound("trace".to_owned(), id))?
         } else {
             connection
                 .query_row(sql, [], trace_score_source_from_row)
@@ -941,8 +1344,9 @@ impl HarnessRepository for SqliteHarnessRepository {
         Ok(score_trace(source))
     }
 
-    fn score_context(&self, id: i64) -> Result<ContextScoreResult> {
-        let connection = self.open_existing()?;
+    fn score_context(&self, id: &str) -> Result<ContextScoreResult> {
+        let connection = self.open_fresh()?;
+        let id = Self::resolve_row_id(&connection, "trace", id)?;
         let source = connection
             .query_row(
                 "SELECT
@@ -968,13 +1372,13 @@ impl HarnessRepository for SqliteHarnessRepository {
                 },
             )
             .optional()?
-            .ok_or(HarnessInfraError::TraceNotFound(id))?;
+            .ok_or(HarnessInfraError::RowIdNotFound("trace".to_owned(), id))?;
 
         Ok(score_context(source))
     }
 
     fn story_verify_status(&self, id: &str) -> Result<StoryVerifyStatus> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         connection
             .query_row(
                 "SELECT id, verify_command, last_verified_result FROM story WHERE id=?1;",
@@ -992,7 +1396,7 @@ impl HarnessRepository for SqliteHarnessRepository {
     }
 
     fn query_matrix(&self) -> Result<Vec<StoryMatrixRecord>> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         let mut statement = connection.prepare(
             "SELECT id, title, status, unit_proof, integration_proof, e2e_proof, platform_proof, evidence
              FROM story ORDER BY id;",
@@ -1015,7 +1419,7 @@ impl HarnessRepository for SqliteHarnessRepository {
     }
 
     fn query_backlog(&self, filter: BacklogFilter) -> Result<Vec<BacklogRecord>> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         let where_clause = match filter {
             BacklogFilter::All => "",
             BacklogFilter::Open => "WHERE status IN ('proposed', 'accepted')",
@@ -1042,7 +1446,7 @@ impl HarnessRepository for SqliteHarnessRepository {
     }
 
     fn query_decisions(&self) -> Result<Vec<DecisionRecord>> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         let mut statement = connection.prepare(
             "SELECT id, title, status, last_verified_at, last_verified_result
              FROM decision ORDER BY id;",
@@ -1062,10 +1466,10 @@ impl HarnessRepository for SqliteHarnessRepository {
     }
 
     fn query_intakes(&self) -> Result<Vec<IntakeRecord>> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         let mut statement = connection.prepare(
             "SELECT id, created_at, input_type, risk_lane, summary
-             FROM intake ORDER BY id DESC LIMIT 20;",
+             FROM intake ORDER BY created_at DESC, id DESC LIMIT 20;",
         )?;
 
         let rows = statement.query_map([], |row| {
@@ -1082,10 +1486,10 @@ impl HarnessRepository for SqliteHarnessRepository {
     }
 
     fn query_traces(&self) -> Result<Vec<TraceRecord>> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         let mut statement = connection.prepare(
             "SELECT id, created_at, outcome, task_summary, harness_friction
-             FROM trace ORDER BY id DESC LIMIT 20;",
+             FROM trace ORDER BY created_at DESC, id DESC LIMIT 20;",
         )?;
 
         let rows = statement.query_map([], |row| {
@@ -1102,7 +1506,7 @@ impl HarnessRepository for SqliteHarnessRepository {
     }
 
     fn query_friction(&self) -> Result<Vec<FrictionRecord>> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         let mut statement = connection.prepare(
             "SELECT
                 trace.id,
@@ -1114,7 +1518,7 @@ impl HarnessRepository for SqliteHarnessRepository {
              FROM trace
              LEFT JOIN intake ON intake.id = trace.intake_id
              WHERE trace.harness_friction IS NOT NULL
-             ORDER BY trace.id DESC;",
+             ORDER BY trace.created_at DESC, trace.id DESC;",
         )?;
 
         let rows = statement.query_map([], |row| {
@@ -1136,7 +1540,7 @@ impl HarnessRepository for SqliteHarnessRepository {
         responsibility: Option<String>,
         capability: Option<String>,
     ) -> Result<Vec<ToolEntry>> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         let mut tools = compiled_tool_registry();
         let mut statement = connection.prepare(
             "SELECT provider, name, command, description, args, responsibility, since,
@@ -1177,14 +1581,14 @@ impl HarnessRepository for SqliteHarnessRepository {
     }
 
     fn query_interventions(&self, filter: InterventionFilter) -> Result<Vec<InterventionRecord>> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         let mut statement = connection.prepare(
             "SELECT id, created_at, trace_id, story_id, type, description, source, impact
              FROM intervention
              WHERE (?1 IS NULL OR trace_id = ?1)
                AND (?2 IS NULL OR story_id = ?2)
                AND (?3 IS NULL OR type = ?3)
-             ORDER BY id DESC;",
+             ORDER BY created_at DESC, id DESC;",
         )?;
         let rows = statement.query_map(
             params![filter.trace_id, filter.story_id, filter.intervention_type],
@@ -1205,13 +1609,13 @@ impl HarnessRepository for SqliteHarnessRepository {
     }
 
     fn query_story_signals(&self, filter: StorySignalFilter) -> Result<Vec<StorySignalRecord>> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         let mut statement = connection.prepare(
             "SELECT id, created_at, story_id, trace_id, type, summary, component, notes
              FROM story_signal
              WHERE (?1 IS NULL OR story_id = ?1)
                AND (?2 IS NULL OR type = ?2)
-             ORDER BY id DESC;",
+             ORDER BY created_at DESC, id DESC;",
         )?;
         let rows = statement.query_map(params![filter.story_id, filter.signal_type], |row| {
             Ok(StorySignalRecord {
@@ -1229,7 +1633,7 @@ impl HarnessRepository for SqliteHarnessRepository {
     }
 
     fn query_stats(&self) -> Result<HarnessStats> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         connection
             .query_row(
                 "SELECT
@@ -1253,7 +1657,7 @@ impl HarnessRepository for SqliteHarnessRepository {
     }
 
     fn audit(&self) -> Result<AuditResult> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         let mut result = AuditResult {
             orphaned_stories: audit_findings(
                 &connection,
@@ -1298,6 +1702,13 @@ impl HarnessRepository for SqliteHarnessRepository {
                  ORDER BY story.id;",
             )?,
             broken_tools: Vec::new(),
+            concurrent_lww_updates: audit_findings(
+                &connection,
+                "SELECT story_id || '.' || field,
+                        'concurrent update: ' || loser_event_id || ' (' || loser_writer ||
+                        ') lost to ' || winner_event_id || ' (' || winner_writer || ')'
+                 FROM lww_audit ORDER BY loser_event_id, field;",
+            )?,
         };
 
         let mut statement =
@@ -1329,7 +1740,7 @@ impl HarnessRepository for SqliteHarnessRepository {
     }
 
     fn propose(&self, commit: bool) -> Result<Vec<ImprovementProposal>> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         let audit = self.audit()?;
         let mut proposals = Vec::new();
 
@@ -1415,24 +1826,22 @@ impl HarnessRepository for SqliteHarnessRepository {
 
         if commit {
             for proposal in &mut proposals {
-                connection.execute(
-                    "INSERT INTO backlog (
-                        title, discovered_while, current_pain, suggested_improvement,
-                        risk, predicted_impact, notes
-                     ) VALUES (?1, 'harness-cli propose', ?2, ?3, ?4, ?5, ?6);",
-                    params![
-                        proposal.title,
-                        proposal.evidence,
-                        proposal.suggested_action,
-                        normalize_token(&proposal.risk),
-                        proposal.predicted_impact,
-                        format!(
-                            "component: {}; confidence: {}; validation: {}",
-                            proposal.component, proposal.confidence, proposal.validation_plan
-                        ),
-                    ],
-                )?;
-                proposal.committed_backlog_id = Some(connection.last_insert_rowid());
+                let id = mint_ulid();
+                let payload = json!({
+                    "id": id,
+                    "title": proposal.title,
+                    "discovered_while": "harness-cli propose",
+                    "current_pain": proposal.evidence,
+                    "suggested_improvement": proposal.suggested_action,
+                    "risk": normalize_token(&proposal.risk),
+                    "predicted_impact": proposal.predicted_impact,
+                    "notes": format!(
+                        "component: {}; confidence: {}; validation: {}",
+                        proposal.component, proposal.confidence, proposal.validation_plan
+                    ),
+                });
+                self.append_and_apply(&connection, "backlog.add", payload)?;
+                proposal.committed_backlog_id = Some(id);
             }
         }
 
@@ -1440,7 +1849,7 @@ impl HarnessRepository for SqliteHarnessRepository {
     }
 
     fn query_sql(&self, sql: &str) -> Result<QueryTable> {
-        let connection = self.open_existing()?;
+        let connection = self.open_fresh()?;
         let mut statement = connection.prepare(sql)?;
         let headers = statement
             .column_names()
@@ -1825,7 +2234,7 @@ fn http_reachable(target: &str) -> bool {
         .any(|address| TcpStream::connect_timeout(&address, Duration::from_secs(2)).is_ok())
 }
 
-fn tool_args_json(args: &[ToolArgSpec]) -> Option<String> {
+pub(crate) fn tool_args_json(args: &[ToolArgSpec]) -> Option<String> {
     if args.is_empty() {
         return None;
     }
@@ -2016,6 +2425,1046 @@ fn sql_value_to_string(value: ValueRef<'_>) -> String {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Shadow-mode rebuild (US-028a): deterministic replay of .harness/events/.
+// ---------------------------------------------------------------------------
+
+/// The eight durable tables and the column each is canonically ordered by.
+const DURABLE_TABLES: [(&str, &str); 8] = [
+    ("intake", "id"),
+    ("story", "id"),
+    ("decision", "id"),
+    ("backlog", "id"),
+    ("trace", "id"),
+    ("tool", "name"),
+    ("intervention", "id"),
+    ("story_signal", "id"),
+];
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RebuildResult {
+    pub db_path: PathBuf,
+    pub events_consumed: usize,
+    pub table_counts: Vec<(String, i64)>,
+    pub dump_hash: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct MigrateToEventsResult {
+    pub already_event_backed: bool,
+    pub events_written: usize,
+    pub table_counts: Vec<(String, i64)>,
+    pub backup_db: Option<PathBuf>,
+    pub archived_log_files: usize,
+}
+
+struct LogEvent {
+    event_id: String,
+    writer: String,
+    recorded_at: String,
+    op: String,
+    payload: JsonValue,
+    /// Per-writer consumed counts this writer had seen at append time
+    /// (causal-audit signal, DKR-4). Absent on shadow/genesis events.
+    observed: Option<JsonValue>,
+    /// 1-based position of this event within its writer's file.
+    writer_seq: i64,
+}
+
+impl SqliteHarnessRepository {
+    pub(crate) fn cache_meta_get(connection: &Connection, key: &str) -> Result<Option<String>> {
+        // cache_meta arrives with schema 007; older caches simply have no flag.
+        let table_exists: Option<String> = connection
+            .query_row(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='cache_meta';",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if table_exists.is_none() {
+            return Ok(None);
+        }
+        Ok(connection
+            .query_row(
+                "SELECT value FROM cache_meta WHERE key=?1;",
+                params![key],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
+    pub(crate) fn cache_meta_set(connection: &Connection, key: &str, value: &str) -> Result<()> {
+        connection.execute(
+            "INSERT INTO cache_meta (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value=excluded.value;",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
+    fn write_watermark(
+        connection: &Connection,
+        file_name: &str,
+        consumed_count: i64,
+        file_size: i64,
+        mtime_ns: i64,
+        content_hash: &str,
+    ) -> Result<()> {
+        connection.execute(
+            "INSERT INTO event_watermark (file, consumed_count, file_size, file_mtime_ns, content_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(file) DO UPDATE SET
+                consumed_count=excluded.consumed_count,
+                file_size=excluded.file_size,
+                file_mtime_ns=excluded.file_mtime_ns,
+                content_hash=excluded.content_hash;",
+            params![file_name, consumed_count, file_size, mtime_ns, content_hash],
+        )?;
+        Ok(())
+    }
+
+    /// One genesis event per durable row: writer `migration`, deterministic
+    /// event ids, original timestamps, original ids preserved in payload.id
+    /// (the three DKR-3 clauses).
+    fn synthesize_genesis(&self, connection: &Connection) -> Result<Vec<LogEvent>> {
+        let mut events = Vec::new();
+        for (table, op) in [
+            ("intake", "intake.record"),
+            ("story", "story.add"),
+            ("decision", "decision.add"),
+            ("backlog", "backlog.add"),
+            ("tool", "tool.register"),
+            ("trace", "trace.record"),
+            ("intervention", "intervention.add"),
+            ("signal", "signal.add"),
+        ] {
+            let sql_table = if table == "signal" {
+                "story_signal"
+            } else {
+                table
+            };
+            let mut statement =
+                connection.prepare(&format!("SELECT * FROM {sql_table} ORDER BY rowid;"))?;
+            let column_names: Vec<String> = statement
+                .column_names()
+                .iter()
+                .map(|name| name.to_string())
+                .collect();
+            let mut rows = statement.query([])?;
+            while let Some(row) = rows.next()? {
+                let mut payload = serde_json::Map::new();
+                let mut created_at: Option<String> = None;
+                let mut row_key: Option<String> = None;
+                for (index, name) in column_names.iter().enumerate() {
+                    let value = match row.get_ref(index)? {
+                        ValueRef::Null => JsonValue::Null,
+                        ValueRef::Integer(value) => JsonValue::from(value),
+                        ValueRef::Real(value) => JsonValue::from(value),
+                        ValueRef::Text(value) => {
+                            JsonValue::String(String::from_utf8_lossy(value).into_owned())
+                        }
+                        ValueRef::Blob(_) => {
+                            return Err(HarnessInfraError::MigrationVerifyFailed(format!(
+                                "{sql_table} has a BLOB column ({name}); genesis does not support blobs"
+                            )))
+                        }
+                    };
+                    match name.as_str() {
+                        "created_at" => {
+                            created_at = value.as_str().map(str::to_owned);
+                        }
+                        // Machine-local scan state is never logged.
+                        "status" if sql_table == "tool" => {}
+                        "checked_at" if sql_table == "tool" => {}
+                        "id" | "name" => {
+                            row_key = Some(match &value {
+                                JsonValue::String(text) => text.clone(),
+                                other => other.to_string(),
+                            });
+                            payload.insert(name.clone(), value);
+                        }
+                        _ => {
+                            payload.insert(name.clone(), value);
+                        }
+                    }
+                }
+                let row_key = row_key.ok_or_else(|| {
+                    HarnessInfraError::MigrationVerifyFailed(format!(
+                        "{sql_table} row without id/name key"
+                    ))
+                })?;
+                let created_at = created_at.ok_or_else(|| {
+                    HarnessInfraError::MigrationVerifyFailed(format!(
+                        "{sql_table} row {row_key} has no created_at"
+                    ))
+                })?;
+                let unix = unix_from_sqlite_datetime(&created_at).ok_or_else(|| {
+                    HarnessInfraError::MigrationVerifyFailed(format!(
+                        "{sql_table} row {row_key}: unparseable created_at '{created_at}'"
+                    ))
+                })?;
+                events.push(LogEvent {
+                    event_id: genesis_ulid((unix.max(0) as u64) * 1000, sql_table, &row_key),
+                    writer: "migration".to_owned(),
+                    recorded_at: rfc3339_from_unix(unix),
+                    op: op.to_owned(),
+                    payload: JsonValue::Object(payload),
+                    observed: None,
+                    writer_seq: 0, // assigned when serialized in sorted order
+                });
+            }
+        }
+        events.sort_by(|left, right| {
+            (left.event_id.as_str(), left.writer.as_str())
+                .cmp(&(right.event_id.as_str(), right.writer.as_str()))
+        });
+        Ok(events)
+    }
+
+    /// US-028b: read the DB, synthesize genesis events, PROVE equality
+    /// against the live DB, and only then install the log and demote the DB.
+    /// Old DB backed up, never deleted; pre-cutover shadow logs archived
+    /// (their content is already captured by genesis).
+    pub fn migrate_to_events(&self) -> Result<MigrateToEventsResult> {
+        let connection = self.open_existing()?;
+        if Self::cache_meta_get(&connection, "event_backed")?.as_deref() == Some("true") {
+            return Ok(MigrateToEventsResult {
+                already_event_backed: true,
+                events_written: 0,
+                table_counts: Vec::new(),
+                backup_db: None,
+                archived_log_files: 0,
+            });
+        }
+
+        let schema_version = Self::schema_version(&connection).unwrap_or(0);
+        let expected = self
+            .migration_files()?
+            .last()
+            .map(|(version, _)| *version)
+            .unwrap_or(0);
+        if schema_version < expected {
+            return Err(HarnessInfraError::MigrationVerifyFailed(format!(
+                "database schema is v{schema_version}, migrations go to v{expected} — run `harness-cli migrate` first"
+            )));
+        }
+        self.guard_unimported_matrix_rows(&connection)?;
+        let events = self.synthesize_genesis(&connection)?;
+
+        // Prove before installing: rebuild from the candidate events and
+        // compare per-table counts + content hashes against the live DB.
+        let verify_path = self.repo_root.join(".harness/tmp-migration-verify.db");
+        let rebuilt = self.build_cache_from_events(&events, &verify_path)?;
+        let mut table_counts = Vec::with_capacity(DURABLE_TABLES.len());
+        for (table, order_column) in DURABLE_TABLES {
+            let excluded: &[&str] = if table == "tool" {
+                &["status", "checked_at"]
+            } else {
+                &[]
+            };
+            let (live_count, live_dump) = dump_table(&connection, table, order_column, excluded)?;
+            let (rebuilt_count, rebuilt_dump) =
+                dump_table(&rebuilt, table, order_column, excluded)?;
+            if live_count != rebuilt_count {
+                return Err(HarnessInfraError::MigrationVerifyFailed(format!(
+                    "{table}: row count {rebuilt_count} (rebuilt) != {live_count} (live)"
+                )));
+            }
+            if fnv1a64(live_dump.as_bytes()) != fnv1a64(rebuilt_dump.as_bytes()) {
+                return Err(HarnessInfraError::MigrationVerifyFailed(format!(
+                    "{table}: content hash mismatch between live DB and genesis rebuild"
+                )));
+            }
+            table_counts.push((table.to_owned(), live_count));
+        }
+        drop(rebuilt);
+        let _ = fs::remove_file(&verify_path);
+
+        // Install.
+        let backup_dir = self.repo_root.join(".harness/backup");
+        fs::create_dir_all(&backup_dir)?;
+        let backup_db = backup_dir.join("harness.db.pre-migration");
+        fs::copy(&self.db_path, &backup_db)?;
+
+        let events_dir = self.repo_root.join(".harness/events");
+        fs::create_dir_all(&events_dir)?;
+        let archive_dir = backup_dir.join("pre-migration-events");
+        let mut archived = 0usize;
+        for entry in fs::read_dir(&events_dir)? {
+            let path = entry?.path();
+            if path.extension().and_then(|value| value.to_str()) == Some("jsonl") {
+                fs::create_dir_all(&archive_dir)?;
+                let file_name = path.file_name().expect("jsonl file name").to_owned();
+                fs::rename(&path, archive_dir.join(file_name))?;
+                archived += 1;
+            }
+        }
+
+        let log_path = events_dir.join("migration.jsonl");
+        let mut serialized = String::new();
+        for event in &events {
+            serialized.push_str(&EventLog::event_line(
+                &event.event_id,
+                &event.writer,
+                &event.recorded_at,
+                &event.op,
+                &event.payload,
+                None,
+            ));
+            serialized.push('\n');
+        }
+        fs::write(&log_path, &serialized)?;
+
+        let mtime_ns = file_mtime_ns(&log_path)?;
+        Self::write_watermark(
+            &connection,
+            "migration.jsonl",
+            events.len() as i64,
+            serialized.len() as i64,
+            mtime_ns,
+            &format!("{:016x}", fnv1a64(serialized.as_bytes())),
+        )?;
+        Self::cache_meta_set(&connection, "event_backed", "true")?;
+
+        Ok(MigrateToEventsResult {
+            already_event_backed: false,
+            events_written: events.len(),
+            table_counts,
+            backup_db: Some(backup_db),
+            archived_log_files: archived,
+        })
+    }
+
+    /// US-028b generated views: human-readable markdown is a projection of
+    /// the cache, never hand-edited. Output is idempotent (no timestamps,
+    /// stable ordering) so PR diffs carry only real state changes — that is
+    /// the pr_reviewability wall's surface.
+    fn regenerate_views(&self, connection: &Connection) -> Result<()> {
+        const MARKER: &str = "<!-- generated by harness-cli — do not hand-edit -->";
+
+        // TEST_MATRIX.md
+        let mut matrix = format!(
+            "{MARKER}\n# Test Matrix\n\nGenerated view of the story table; the event log is the source of truth.\nUpdate proof with `harness-cli story update`, never by editing this file.\n\n| Story | Contract | Unit | Integration | E2E | Platform | Status | Evidence |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n"
+        );
+        let mut statement = connection.prepare(
+            "SELECT id, COALESCE(contract_doc, title), unit_proof, integration_proof,
+                    e2e_proof, platform_proof, status, COALESCE(evidence, '')
+             FROM story ORDER BY id;",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
+            ))
+        })?;
+        let proof = |value: i64| if value == 1 { "yes" } else { "no" };
+        for (id, contract, unit, integration, e2e, platform, status, evidence) in
+            collect_rows(rows)?
+        {
+            let evidence = evidence.replace('|', "\\|").replace('\n', " ");
+            matrix.push_str(&format!(
+                "| {id} | {contract} | {} | {} | {} | {} | {status} | {evidence} |\n",
+                proof(unit),
+                proof(integration),
+                proof(e2e),
+                proof(platform),
+            ));
+        }
+        write_if_changed(&self.repo_root.join("docs/TEST_MATRIX.md"), &matrix)?;
+
+        // HARNESS_BACKLOG.md
+        let mut backlog = format!(
+            "{MARKER}\n# Harness Backlog\n\nGenerated view of the backlog table; the event log is the source of truth.\nAdd items with `harness-cli backlog add`, close with `harness-cli backlog close`.\n\n| Id | Title | Risk | Status | Predicted impact | Actual outcome |\n| --- | --- | --- | --- | --- | --- |\n"
+        );
+        let mut statement = connection.prepare(
+            "SELECT id, title, COALESCE(risk, ''), status,
+                    COALESCE(predicted_impact, ''), COALESCE(actual_outcome, '')
+             FROM backlog ORDER BY id;",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })?;
+        for (id, title, risk, status, predicted, actual) in collect_rows(rows)? {
+            let clean = |text: String| text.replace('|', "\\|").replace('\n', " ");
+            backlog.push_str(&format!(
+                "| {id} | {} | {risk} | {status} | {} | {} |\n",
+                clean(title),
+                clean(predicted),
+                clean(actual),
+            ));
+        }
+        write_if_changed(&self.repo_root.join("docs/HARNESS_BACKLOG.md"), &backlog)?;
+
+        // Decision index
+        let mut index = format!(
+            "{MARKER}\n# Decisions\n\nGenerated index of the decision table; records live in this directory.\nAdd decisions with `harness-cli decision add` (doc from `docs/templates/decision.md`).\n\n| Id | Title | Status | Doc |\n| --- | --- | --- | --- |\n"
+        );
+        let mut statement = connection.prepare(
+            "SELECT id, title, status, COALESCE(doc_path, '') FROM decision ORDER BY id;",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?;
+        for (id, title, status, doc) in collect_rows(rows)? {
+            index.push_str(&format!("| {id} | {title} | {status} | {doc} |\n"));
+        }
+        write_if_changed(&self.repo_root.join("docs/decisions/README.md"), &index)?;
+        Ok(())
+    }
+
+    /// Migration guard (parent spec + US-028b design): markdown story rows
+    /// that never reached the database would be silently erased by the first
+    /// view regeneration — refuse and point at import brownfield.
+    fn guard_unimported_matrix_rows(&self, connection: &Connection) -> Result<()> {
+        let matrix_path = self.repo_root.join("docs/TEST_MATRIX.md");
+        if !matrix_path.exists() {
+            return Ok(());
+        }
+        let content = fs::read_to_string(&matrix_path)?;
+        if content.starts_with("<!-- generated by harness-cli") {
+            return Ok(());
+        }
+        let mut missing = Vec::new();
+        let mut header_seen = false;
+        for line in content.lines() {
+            if !line.trim_start().starts_with('|') {
+                continue;
+            }
+            let fields = markdown_table_fields(line);
+            if fields.len() < 2 {
+                continue;
+            }
+            if !header_seen {
+                let candidate = MatrixColumns::from_header(&fields);
+                if candidate.story.is_some() && candidate.status.is_some() {
+                    header_seen = true;
+                }
+                continue;
+            }
+            let id = field_at(&fields, Some(0)).unwrap_or_default();
+            let token = normalize_token(&id);
+            if matches!(
+                token.as_str(),
+                "" | "story" | "status" | "meaning" | "tbd" | "todo" | "example" | "examples"
+            ) || id.chars().all(|character| character == '-')
+            {
+                continue;
+            }
+            let exists: Option<String> = connection
+                .query_row("SELECT id FROM story WHERE id=?1;", params![id], |row| {
+                    row.get(0)
+                })
+                .optional()?;
+            if exists.is_none() {
+                missing.push(id);
+            }
+        }
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(HarnessInfraError::MigrationVerifyFailed(format!(
+                "docs/TEST_MATRIX.md has stories missing from the database ({}) — run `harness-cli import brownfield` before migrating, or they will vanish from the generated view",
+                missing.join(", ")
+            )))
+        }
+    }
+
+    /// Replay events into a fresh cache database at `db_path`.
+    fn build_cache_from_events(&self, events: &[LogEvent], db_path: &Path) -> Result<Connection> {
+        if let Some(parent) = db_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        if db_path.exists() {
+            fs::remove_file(db_path)?;
+        }
+
+        let connection = Connection::open(db_path)?;
+        self.apply_schema_v1(&connection)?;
+        self.apply_pending_migrations(&connection, 1)?;
+        // A log may reference rows that predate it (shadow phase) and replay
+        // order across writers is (event_id, writer), so referential
+        // integrity is the log's contract, not SQLite FK enforcement.
+        connection.pragma_update(None, "foreign_keys", "OFF")?;
+
+        for event in events {
+            apply_event(&connection, event)?;
+        }
+        Ok(connection)
+    }
+
+    /// Full deterministic replay from genesis into a fresh cache. Two rebuilds
+    /// of the same log must produce identical dump hashes — every timestamp
+    /// comes from the event, never from the wall clock.
+    pub fn rebuild(&self, output: Option<PathBuf>) -> Result<RebuildResult> {
+        let events = self.read_event_log()?;
+        let db_path = output.unwrap_or_else(|| self.repo_root.join(".harness/shadow.db"));
+        let connection = self.build_cache_from_events(&events, &db_path)?;
+
+        let mut table_counts = Vec::with_capacity(DURABLE_TABLES.len());
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for (table, order_column) in DURABLE_TABLES {
+            let (count, table_dump) = dump_table(&connection, table, order_column, &[])?;
+            table_counts.push((table.to_owned(), count));
+            hash ^= crate::events::fnv1a64(table_dump.as_bytes());
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+
+        Ok(RebuildResult {
+            db_path,
+            events_consumed: events.len(),
+            table_counts,
+            dump_hash: format!("{hash:016x}"),
+        })
+    }
+
+    fn read_event_log(&self) -> Result<Vec<LogEvent>> {
+        let events_dir = self.repo_root.join(".harness/events");
+        let mut events = Vec::new();
+        if !events_dir.is_dir() {
+            return Ok(events);
+        }
+
+        let mut files = Vec::new();
+        for entry in fs::read_dir(&events_dir)? {
+            let path = entry?.path();
+            if path.extension().and_then(|value| value.to_str()) == Some("jsonl") {
+                files.push(path);
+            }
+        }
+        files.sort();
+
+        for path in files {
+            let display = path.display().to_string();
+            let content = fs::read_to_string(&path)?;
+            for (index, line) in content.lines().enumerate() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                events.push(parse_event_line(line, &display, index)?);
+            }
+        }
+
+        // Total replay order per the US-028 spec: (event_id ULID, writer).
+        events.sort_by(|left, right| {
+            (left.event_id.as_str(), left.writer.as_str())
+                .cmp(&(right.event_id.as_str(), right.writer.as_str()))
+        });
+        Ok(events)
+    }
+}
+
+fn parse_event_line(line: &str, file: &str, line_index: usize) -> Result<LogEvent> {
+    let value: JsonValue = serde_json::from_str(line).map_err(|error| {
+        HarnessInfraError::CorruptEventLog(format!("{file}:{}", line_index + 1), error.to_string())
+    })?;
+    Ok(LogEvent {
+        event_id: require_str(&value, "event_id", file, line_index)?,
+        writer: require_str(&value, "writer", file, line_index)?,
+        recorded_at: require_str(&value, "recorded_at", file, line_index)?,
+        op: require_str(&value, "op", file, line_index)?,
+        payload: value.get("payload").cloned().unwrap_or(JsonValue::Null),
+        observed: value.get("observed").cloned(),
+        writer_seq: (line_index + 1) as i64,
+    })
+}
+
+fn require_str(value: &JsonValue, key: &str, file: &str, line_index: usize) -> Result<String> {
+    value
+        .get(key)
+        .and_then(JsonValue::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            HarnessInfraError::CorruptEventLog(
+                format!("{file}:{}", line_index + 1),
+                format!("missing or non-string field '{key}'"),
+            )
+        })
+}
+
+fn p_str(payload: &JsonValue, key: &str) -> Option<String> {
+    payload
+        .get(key)
+        .and_then(JsonValue::as_str)
+        .map(str::to_owned)
+}
+
+fn p_i64(payload: &JsonValue, key: &str) -> Option<i64> {
+    payload.get(key).and_then(JsonValue::as_i64)
+}
+
+/// Row ids: ULID strings post-cutover, integers in legacy shadow events and
+/// genesis payloads. Both land in TEXT id columns.
+fn p_id(payload: &JsonValue, key: &str) -> Option<String> {
+    match payload.get(key) {
+        Some(JsonValue::String(value)) => Some(value.clone()),
+        Some(JsonValue::Number(value)) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+/// JSON-array columns (risk_flags, trace lists, tool args) are stored as the
+/// array's JSON text, exactly as the live write path stores them. Live events
+/// carry them as arrays (serialized back to text); genesis events carry the
+/// original column text verbatim as a string, so migration round-trips
+/// byte-exactly regardless of the original formatting.
+fn p_json_text(payload: &JsonValue, key: &str) -> Option<String> {
+    match payload.get(key) {
+        None | Some(JsonValue::Null) => None,
+        Some(JsonValue::String(value)) => Some(value.clone()),
+        Some(value) => Some(value.to_string()),
+    }
+}
+
+/// Event `recorded_at` (RFC3339, second precision) to the `datetime('now')`
+/// format the live schema writes, so rebuilt rows look native.
+fn event_timestamp(recorded_at: &str) -> String {
+    recorded_at
+        .replace('T', " ")
+        .trim_end_matches('Z')
+        .to_owned()
+}
+
+/// Per-field last-writer-wins with the causal audit (DKR-4, US-028b).
+///
+/// A field only takes an incoming value when the incoming event is later in
+/// the `(event_id, writer)` total order than the field's last update — which
+/// makes incremental replay converge to the same state as a full rebuild
+/// regardless of arrival order. A cross-writer update is CONCURRENT when the
+/// incoming writer had not observed the last update's position in its
+/// writer's file; concurrency is recorded in `lww_audit` (never a wall-clock
+/// window — any window W silently misses skew > W).
+fn apply_story_update(connection: &Connection, event: &LogEvent) -> Result<()> {
+    const FIELDS: [&str; 7] = [
+        "status",
+        "evidence",
+        "unit_proof",
+        "integration_proof",
+        "e2e_proof",
+        "platform_proof",
+        "verify_command",
+    ];
+    let payload = &event.payload;
+    let Some(story_id) = p_str(payload, "id") else {
+        return Ok(());
+    };
+
+    for field in FIELDS {
+        if payload.get(field).is_none() {
+            continue;
+        }
+        let last: Option<(String, String, i64)> = connection
+            .query_row(
+                "SELECT event_id, writer, writer_seq FROM field_last_update
+                 WHERE story_id=?1 AND field=?2;",
+                params![story_id, field],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+
+        let mut apply_field = true;
+        if let Some((last_event, last_writer, last_seq)) = &last {
+            let incoming_key = (event.event_id.as_str(), event.writer.as_str());
+            let last_key = (last_event.as_str(), last_writer.as_str());
+            if *last_writer != event.writer {
+                let observed_count = event
+                    .observed
+                    .as_ref()
+                    .and_then(|map| map.get(last_writer))
+                    .and_then(JsonValue::as_i64)
+                    .unwrap_or(0);
+                if observed_count < *last_seq {
+                    // Causally concurrent: record it, deterministically keyed
+                    // so replay and incremental apply agree.
+                    let (loser_event, loser_writer, winner_event, winner_writer) =
+                        if incoming_key > last_key {
+                            (
+                                last_event.as_str(),
+                                last_writer.as_str(),
+                                event.event_id.as_str(),
+                                event.writer.as_str(),
+                            )
+                        } else {
+                            (
+                                event.event_id.as_str(),
+                                event.writer.as_str(),
+                                last_event.as_str(),
+                                last_writer.as_str(),
+                            )
+                        };
+                    connection.execute(
+                        "INSERT OR IGNORE INTO lww_audit
+                            (loser_event_id, winner_event_id, story_id, field,
+                             loser_writer, winner_writer)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6);",
+                        params![
+                            loser_event,
+                            winner_event,
+                            story_id,
+                            field,
+                            loser_writer,
+                            winner_writer
+                        ],
+                    )?;
+                }
+            }
+            if incoming_key <= last_key {
+                apply_field = false;
+            }
+        }
+
+        if apply_field {
+            if let Some(number) = p_i64(payload, field) {
+                connection.execute(
+                    &format!("UPDATE story SET {field}=?1 WHERE id=?2;"),
+                    params![number, story_id],
+                )?;
+            } else if let Some(text) = p_str(payload, field) {
+                connection.execute(
+                    &format!("UPDATE story SET {field}=?1 WHERE id=?2;"),
+                    params![text, story_id],
+                )?;
+            }
+            connection.execute(
+                "INSERT INTO field_last_update (story_id, field, event_id, writer, writer_seq)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(story_id, field) DO UPDATE SET
+                    event_id=excluded.event_id,
+                    writer=excluded.writer,
+                    writer_seq=excluded.writer_seq;",
+                params![
+                    story_id,
+                    field,
+                    event.event_id,
+                    event.writer,
+                    event.writer_seq
+                ],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn apply_event(connection: &Connection, event: &LogEvent) -> Result<()> {
+    let payload = &event.payload;
+    let created_at = event_timestamp(&event.recorded_at);
+    match event.op.as_str() {
+        "intake.record" => {
+            connection.execute(
+                "INSERT INTO intake (
+                    id, created_at, input_type, summary, risk_lane,
+                    risk_flags, affected_docs, story_id, notes
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9);",
+                params![
+                    p_id(payload, "id"),
+                    created_at,
+                    p_str(payload, "input_type"),
+                    p_str(payload, "summary"),
+                    p_str(payload, "risk_lane"),
+                    p_json_text(payload, "risk_flags"),
+                    p_json_text(payload, "affected_docs"),
+                    p_str(payload, "story_id"),
+                    p_str(payload, "notes"),
+                ],
+            )?;
+        }
+        "story.add" => {
+            // Live events carry the add-form fields; genesis events carry the
+            // full row (status, proofs, verify results) — defaults cover the
+            // difference so one op serves both.
+            connection.execute(
+                "INSERT INTO story (
+                    id, title, created_at, risk_lane, contract_doc, status,
+                    unit_proof, integration_proof, e2e_proof, platform_proof,
+                    evidence, verify_command, last_verified_at, last_verified_result, notes
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6, 'planned'),
+                    COALESCE(?7, 0), COALESCE(?8, 0), COALESCE(?9, 0), COALESCE(?10, 0),
+                    ?11, ?12, ?13, ?14, ?15);",
+                params![
+                    p_str(payload, "id"),
+                    p_str(payload, "title"),
+                    created_at,
+                    p_str(payload, "risk_lane"),
+                    p_str(payload, "contract_doc"),
+                    p_str(payload, "status"),
+                    p_i64(payload, "unit_proof"),
+                    p_i64(payload, "integration_proof"),
+                    p_i64(payload, "e2e_proof"),
+                    p_i64(payload, "platform_proof"),
+                    p_str(payload, "evidence"),
+                    p_str(payload, "verify_command"),
+                    p_str(payload, "last_verified_at"),
+                    p_str(payload, "last_verified_result"),
+                    p_str(payload, "notes"),
+                ],
+            )?;
+        }
+        "story.update" => {
+            apply_story_update(connection, event)?;
+        }
+        "story.verify_result" => {
+            connection.execute(
+                "UPDATE story SET last_verified_at=?1, last_verified_result=?2 WHERE id=?3;",
+                params![created_at, p_str(payload, "result"), p_str(payload, "id")],
+            )?;
+        }
+        "decision.add" => {
+            connection.execute(
+                "INSERT INTO decision (
+                    id, title, created_at, status, doc_path, verify_command,
+                    last_verified_at, last_verified_result, predicted_impact,
+                    actual_outcome, notes
+                 ) VALUES (?1, ?2, ?3, COALESCE(?4, 'proposed'), ?5, ?6, ?7, ?8, ?9, ?10, ?11);",
+                params![
+                    p_str(payload, "id"),
+                    p_str(payload, "title"),
+                    created_at,
+                    p_str(payload, "status"),
+                    p_str(payload, "doc_path"),
+                    p_str(payload, "verify_command"),
+                    p_str(payload, "last_verified_at"),
+                    p_str(payload, "last_verified_result"),
+                    p_str(payload, "predicted_impact"),
+                    p_str(payload, "actual_outcome"),
+                    p_str(payload, "notes"),
+                ],
+            )?;
+        }
+        "decision.verify_result" => {
+            connection.execute(
+                "UPDATE decision SET last_verified_at=?1, last_verified_result=?2 WHERE id=?3;",
+                params![created_at, p_str(payload, "result"), p_str(payload, "id")],
+            )?;
+        }
+        "backlog.add" => {
+            connection.execute(
+                "INSERT INTO backlog (
+                    id, created_at, title, discovered_while, current_pain,
+                    suggested_improvement, risk, status, predicted_impact,
+                    actual_outcome, implemented_at, notes
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE(?8, 'proposed'), ?9, ?10, ?11, ?12);",
+                params![
+                    p_id(payload, "id"),
+                    created_at,
+                    p_str(payload, "title"),
+                    p_str(payload, "discovered_while"),
+                    p_str(payload, "current_pain"),
+                    p_str(payload, "suggested_improvement"),
+                    p_str(payload, "risk"),
+                    p_str(payload, "status"),
+                    p_str(payload, "predicted_impact"),
+                    p_str(payload, "actual_outcome"),
+                    p_str(payload, "implemented_at"),
+                    p_str(payload, "notes"),
+                ],
+            )?;
+        }
+        "backlog.close" => {
+            connection.execute(
+                "UPDATE backlog SET status=?1, actual_outcome=?2, implemented_at=?3 WHERE id=?4;",
+                params![
+                    p_str(payload, "status"),
+                    p_str(payload, "actual_outcome"),
+                    created_at,
+                    p_id(payload, "id"),
+                ],
+            )?;
+        }
+        "tool.register" => {
+            // Scan state is machine-local and never logged: status starts
+            // 'unknown', checked_at NULL, exactly like a fresh registration.
+            connection.execute(
+                "INSERT INTO tool (
+                    name, created_at, provider, command, description, args,
+                    responsibility, since, kind, capability, scan_target, status
+                 ) VALUES (?1, ?2, COALESCE(?3, 'custom'), ?4, ?5, ?6, ?7,
+                    COALESCE(?8, 'registered'), ?9, ?10, ?11, 'unknown');",
+                params![
+                    p_str(payload, "name"),
+                    created_at,
+                    p_str(payload, "provider"),
+                    p_str(payload, "command"),
+                    p_str(payload, "description"),
+                    p_json_text(payload, "args"),
+                    p_str(payload, "responsibility"),
+                    p_str(payload, "since"),
+                    p_str(payload, "kind"),
+                    p_str(payload, "capability"),
+                    p_str(payload, "scan_target"),
+                ],
+            )?;
+        }
+        "tool.remove" => {
+            connection.execute(
+                "DELETE FROM tool WHERE name=?1;",
+                params![p_str(payload, "name")],
+            )?;
+        }
+        "intervention.add" => {
+            connection.execute(
+                "INSERT INTO intervention (
+                    id, created_at, trace_id, story_id, type, description, source, impact
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8);",
+                params![
+                    p_id(payload, "id"),
+                    created_at,
+                    p_id(payload, "trace_id"),
+                    p_str(payload, "story_id"),
+                    p_str(payload, "type"),
+                    p_str(payload, "description"),
+                    p_str(payload, "source"),
+                    p_str(payload, "impact"),
+                ],
+            )?;
+        }
+        "signal.add" => {
+            connection.execute(
+                "INSERT INTO story_signal (
+                    id, created_at, story_id, trace_id, type, summary, component, notes
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8);",
+                params![
+                    p_id(payload, "id"),
+                    created_at,
+                    p_str(payload, "story_id"),
+                    p_id(payload, "trace_id"),
+                    p_str(payload, "type"),
+                    p_str(payload, "summary"),
+                    p_str(payload, "component"),
+                    p_str(payload, "notes"),
+                ],
+            )?;
+        }
+        "trace.record" => {
+            connection.execute(
+                "INSERT INTO trace (
+                    id, created_at, task_summary, intake_id, story_id, agent,
+                    actions_taken, files_read, files_changed, decisions_made, errors,
+                    outcome, duration_seconds, token_estimate, harness_friction, notes
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16);",
+                params![
+                    p_id(payload, "id"),
+                    created_at,
+                    p_str(payload, "task_summary"),
+                    p_id(payload, "intake_id"),
+                    p_str(payload, "story_id"),
+                    p_str(payload, "agent"),
+                    p_json_text(payload, "actions_taken"),
+                    p_json_text(payload, "files_read"),
+                    p_json_text(payload, "files_changed"),
+                    p_json_text(payload, "decisions_made"),
+                    p_json_text(payload, "errors"),
+                    p_str(payload, "outcome"),
+                    p_i64(payload, "duration_seconds"),
+                    p_i64(payload, "token_estimate"),
+                    p_str(payload, "harness_friction"),
+                    p_str(payload, "notes"),
+                ],
+            )?;
+        }
+        unknown => {
+            // schema-field upcasters arrive with US-028b; in shadow phase an
+            // unknown op means a corrupt or newer-format log — refuse.
+            return Err(HarnessInfraError::CorruptEventLog(
+                event.event_id.clone(),
+                format!("unknown op '{unknown}'"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// A `CsvList` renders as JSON array text for the database; event payloads
+/// carry the same array parsed back to a JSON value.
+fn csv_payload(list: &CsvList) -> JsonValue {
+    list.as_json_text()
+        .and_then(|text| serde_json::from_str::<JsonValue>(&text).ok())
+        .unwrap_or(JsonValue::Null)
+}
+
+fn write_if_changed(path: &Path, content: &str) -> Result<()> {
+    if let Ok(existing) = fs::read_to_string(path) {
+        if existing == content {
+            return Ok(());
+        }
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, content)?;
+    Ok(())
+}
+
+fn file_mtime_ns(path: &Path) -> Result<i64> {
+    let metadata = fs::metadata(path)?;
+    let mtime = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos() as i64)
+        .unwrap_or(0);
+    Ok(mtime)
+}
+
+/// Canonical, order-stable serialization of one table for the dump hash.
+fn dump_table(
+    connection: &Connection,
+    table: &str,
+    order_column: &str,
+    excluded: &[&str],
+) -> Result<(i64, String)> {
+    let mut statement =
+        connection.prepare(&format!("SELECT * FROM {table} ORDER BY {order_column};"))?;
+    let column_count = statement.column_count();
+    let included: Vec<usize> = (0..column_count)
+        .filter(|index| !excluded.contains(&statement.column_name(*index).unwrap_or_default()))
+        .collect();
+    let mut rows = statement.query([])?;
+    let mut dump = String::from(table);
+    let mut count = 0i64;
+    while let Some(row) = rows.next()? {
+        count += 1;
+        dump.push('\u{1e}');
+        for (position, index) in included.iter().copied().enumerate() {
+            if position > 0 {
+                dump.push('\u{1f}');
+            }
+            match row.get_ref(index)? {
+                ValueRef::Null => dump.push('\u{2205}'),
+                ValueRef::Integer(value) => dump.push_str(&format!("i:{value}")),
+                ValueRef::Real(value) => dump.push_str(&format!("r:{value}")),
+                ValueRef::Text(value) => {
+                    dump.push_str("t:");
+                    dump.push_str(&String::from_utf8_lossy(value));
+                }
+                ValueRef::Blob(value) => {
+                    dump.push_str("b:");
+                    for byte in value {
+                        dump.push_str(&format!("{byte:02x}"));
+                    }
+                }
+            }
+        }
+    }
+    Ok((count, dump))
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
@@ -2028,17 +3477,23 @@ mod tests {
     };
     use crate::domain::{BacklogFilter, BoolFlag, CsvList, InputType, RiskLane, TraceQualityTier};
 
-    fn test_repository() -> (TempDir, SqliteHarnessRepository) {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    fn real_repo_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .ancestors()
             .nth(2)
             .unwrap()
-            .to_path_buf();
+            .to_path_buf()
+    }
+
+    /// Isolated repo root (the repository now owns an event log rooted there —
+    /// tests must NEVER write into the real repo's .harness/events) with the
+    /// real schema dir.
+    fn test_repository() -> (TempDir, SqliteHarnessRepository) {
+        let temp_dir = tempfile::tempdir().unwrap();
         let repository = SqliteHarnessRepository::new(
-            repo_root.clone(),
+            temp_dir.path().to_path_buf(),
             temp_dir.path().join("harness.db"),
-            repo_root.join("scripts/schema"),
+            real_repo_root().join("scripts/schema"),
         );
         (temp_dir, repository)
     }
@@ -2051,6 +3506,1035 @@ mod tests {
         rows.collect::<std::result::Result<Vec<_>, _>>().unwrap()
     }
 
+    /// Isolated repo root with the real schema dir, driven through
+    /// `HarnessService` so the full event-backed write path runs.
+    fn events_test_service() -> (TempDir, crate::application::HarnessService) {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = crate::application::HarnessService::new(crate::application::HarnessContext {
+            repo_root: temp_dir.path().to_path_buf(),
+            db_path: temp_dir.path().join("harness.db"),
+            schema_dir: real_repo_root().join("scripts/schema"),
+        });
+        service.init().unwrap();
+        (temp_dir, service)
+    }
+
+    fn events_seed_all_ops(service: &crate::application::HarnessService) {
+        let intake_id = service
+            .record_intake(IntakeInput {
+                input_type: InputType::from_str("maintenance").unwrap(),
+                summary: "shadow mode seed".to_owned(),
+                risk_lane: RiskLane::from_str("tiny").unwrap(),
+                risk_flags: CsvList::from_optional(Some("weak_proof".to_owned())),
+                affected_docs: CsvList::from_optional(None),
+                story_id: None,
+                notes: Some("seed".to_owned()),
+            })
+            .unwrap();
+        service
+            .add_story(StoryAddInput {
+                id: "US-1".to_owned(),
+                title: "shadow story".to_owned(),
+                risk_lane: RiskLane::from_str("normal").unwrap(),
+                contract_doc: Some("docs/x.md".to_owned()),
+                verify_command: None,
+                notes: None,
+            })
+            .unwrap();
+        service
+            .update_story(StoryUpdateInput {
+                id: "US-1".to_owned(),
+                status: Some("implemented".to_owned()),
+                evidence: Some("unit \"quoted\" evidence".to_owned()),
+                unit: Some(BoolFlag(1)),
+                integration: None,
+                e2e: None,
+                platform: None,
+                verify_command: None,
+            })
+            .unwrap();
+        service
+            .add_decision(DecisionAddInput {
+                id: "0001".to_owned(),
+                title: "shadow decision".to_owned(),
+                status: "accepted".to_owned(),
+                doc_path: None,
+                verify_command: None,
+                predicted_impact: None,
+                notes: None,
+            })
+            .unwrap();
+        let backlog_id = service
+            .add_backlog(BacklogAddInput {
+                title: "shadow backlog".to_owned(),
+                discovered_while: Some("testing".to_owned()),
+                current_pain: None,
+                suggestion: None,
+                risk: Some(RiskLane::from_str("tiny").unwrap()),
+                predicted_impact: None,
+                notes: None,
+            })
+            .unwrap();
+        service
+            .close_backlog(BacklogCloseInput {
+                id: backlog_id,
+                status: "implemented".to_owned(),
+                actual_outcome: Some("done".to_owned()),
+            })
+            .unwrap();
+        service
+            .register_tool(ToolRegisterInput {
+                name: "shadow-tool".to_owned(),
+                command: "skill:shadow".to_owned(),
+                description: "Shadow tool for rebuild test".to_owned(),
+                responsibility: "Verification".to_owned(),
+                args: Vec::new(),
+                force: false,
+                kind: "skill".to_owned(),
+                capability: Some("impact-analysis".to_owned()),
+                scan_target: Some(".shadow".to_owned()),
+            })
+            .unwrap();
+        let trace_id = service
+            .record_trace(TraceInput {
+                task_summary: "shadow trace".to_owned(),
+                intake_id: Some(intake_id.clone()),
+                story_id: Some("US-1".to_owned()),
+                agent: Some("test".to_owned()),
+                outcome: Some("completed".to_owned()),
+                duration_seconds: Some(5),
+                token_estimate: None,
+                friction: None,
+                notes: None,
+                actions: CsvList::from_optional(Some("a,b".to_owned())),
+                files_read: CsvList::from_optional(None),
+                files_changed: CsvList::from_optional(None),
+                decisions: CsvList::from_optional(None),
+                errors: CsvList::from_optional(None),
+            })
+            .unwrap();
+        service
+            .add_intervention(InterventionAddInput {
+                trace_id: Some(trace_id.clone()),
+                story_id: Some("US-1".to_owned()),
+                intervention_type: "correction".to_owned(),
+                description: "shadow correction".to_owned(),
+                source: "human".to_owned(),
+                impact: None,
+            })
+            .unwrap();
+        service
+            .add_story_signal(StorySignalAddInput {
+                story_id: Some("US-1".to_owned()),
+                trace_id: Some(trace_id),
+                signal_type: "design_decision".to_owned(),
+                summary: "shadow signal".to_owned(),
+                component: None,
+                notes: None,
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn events_shadow_writes_one_event_per_durable_mutation() {
+        let (temp_dir, service) = events_test_service();
+        events_seed_all_ops(&service);
+
+        let events_dir = temp_dir.path().join(".harness/events");
+        let mut files: Vec<_> = fs::read_dir(&events_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        files.sort();
+        assert_eq!(files.len(), 1, "one writer, one file");
+        let content = fs::read_to_string(&files[0]).unwrap();
+        let ops: Vec<String> = content
+            .lines()
+            .map(|line| {
+                serde_json::from_str::<JsonValue>(line).unwrap()["op"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect();
+        assert_eq!(
+            ops,
+            vec![
+                "intake.record",
+                "story.add",
+                "story.update",
+                "decision.add",
+                "backlog.add",
+                "backlog.close",
+                "tool.register",
+                "trace.record",
+                "intervention.add",
+                "signal.add",
+            ]
+        );
+    }
+
+    #[test]
+    fn events_rebuild_is_deterministic_and_reproduces_writes() {
+        let (temp_dir, service) = events_test_service();
+        events_seed_all_ops(&service);
+
+        let first = service
+            .rebuild(Some(temp_dir.path().join("rebuild-1.db")))
+            .unwrap();
+        let second = service
+            .rebuild(Some(temp_dir.path().join("rebuild-2.db")))
+            .unwrap();
+
+        // The determinism proof: two independent rebuilds, identical dumps.
+        assert_eq!(first.dump_hash, second.dump_hash);
+        assert_eq!(first.events_consumed, 10);
+        let counts: Vec<(&str, i64)> = first
+            .table_counts
+            .iter()
+            .map(|(table, count)| (table.as_str(), *count))
+            .collect();
+        assert_eq!(
+            counts,
+            vec![
+                ("intake", 1),
+                ("story", 1),
+                ("decision", 1),
+                ("backlog", 1),
+                ("trace", 1),
+                ("tool", 1),
+                ("intervention", 1),
+                ("story_signal", 1),
+            ]
+        );
+
+        // Replay reproduced the mutation, not just the insert.
+        let connection = Connection::open(&first.db_path).unwrap();
+        let (status, unit_proof, evidence): (String, i64, String) = connection
+            .query_row(
+                "SELECT status, unit_proof, evidence FROM story WHERE id='US-1';",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(status, "implemented");
+        assert_eq!(unit_proof, 1);
+        assert_eq!(evidence, "unit \"quoted\" evidence");
+        let backlog_status: String = connection
+            .query_row("SELECT status FROM backlog;", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(backlog_status, "implemented");
+        // Machine-local scan state was never logged: rebuilt tool is pristine.
+        let (tool_status, checked_at): (String, Option<String>) = connection
+            .query_row("SELECT status, checked_at FROM tool;", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(tool_status, "unknown");
+        assert_eq!(checked_at, None);
+    }
+
+    #[test]
+    fn events_rebuild_refuses_corrupt_log_line() {
+        let (temp_dir, service) = events_test_service();
+        events_seed_all_ops(&service);
+
+        let events_dir = temp_dir.path().join(".harness/events");
+        let file = fs::read_dir(&events_dir)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let mut content = fs::read_to_string(&file).unwrap();
+        content.push_str("{not json\n");
+        fs::write(&file, content).unwrap();
+
+        let error = service
+            .rebuild(Some(temp_dir.path().join("rebuild.db")))
+            .unwrap_err();
+        assert!(matches!(error, HarnessInfraError::CorruptEventLog(..)));
+    }
+
+    #[test]
+    fn cutover_migration_007_preserves_rows_and_converts_ids_to_text() {
+        let (_temp_dir, repository) = test_repository();
+        let connection = repository.open_or_create().unwrap();
+        repository.apply_schema_v1(&connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO intake (input_type, summary, risk_lane)
+                 VALUES ('maintenance', 'pre-007 row', 'tiny');",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO backlog (title, status) VALUES ('pre-007 backlog', 'proposed');",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+
+        repository.migrate().unwrap();
+
+        let connection = repository.open_existing().unwrap();
+        let (intake_id, summary): (String, String) = connection
+            .query_row("SELECT id, summary FROM intake;", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(intake_id, "1");
+        assert_eq!(summary, "pre-007 row");
+        let backlog_id: String = connection
+            .query_row("SELECT id FROM backlog;", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(backlog_id, "1");
+    }
+
+    #[test]
+    fn cutover_row_ids_are_ulids_and_prefixes_resolve() {
+        let (_temp_dir, repository) = test_repository();
+        repository.init().unwrap();
+        let first = repository
+            .record_trace(TraceInput {
+                task_summary: "first trace for prefix resolution".to_owned(),
+                intake_id: None,
+                story_id: None,
+                agent: None,
+                outcome: Some("completed".to_owned()),
+                duration_seconds: None,
+                token_estimate: None,
+                friction: None,
+                notes: None,
+                actions: CsvList::from_optional(None),
+                files_read: CsvList::from_optional(None),
+                files_changed: CsvList::from_optional(None),
+                decisions: CsvList::from_optional(None),
+                errors: CsvList::from_optional(None),
+            })
+            .unwrap();
+        let second = repository
+            .record_trace(TraceInput {
+                task_summary: "second trace for prefix resolution".to_owned(),
+                intake_id: None,
+                story_id: None,
+                agent: None,
+                outcome: Some("completed".to_owned()),
+                duration_seconds: None,
+                token_estimate: None,
+                friction: None,
+                notes: None,
+                actions: CsvList::from_optional(None),
+                files_read: CsvList::from_optional(None),
+                files_changed: CsvList::from_optional(None),
+                decisions: CsvList::from_optional(None),
+                errors: CsvList::from_optional(None),
+            })
+            .unwrap();
+        assert_eq!(first.len(), 26);
+        assert_ne!(first, second);
+
+        let connection = repository.open_existing().unwrap();
+        // Exact id resolves to itself.
+        assert_eq!(
+            SqliteHarnessRepository::resolve_row_id(&connection, "trace", &first).unwrap(),
+            first
+        );
+        // A shared prefix (ULID time part) is ambiguous.
+        let shared: String = first.chars().take(1).collect();
+        assert!(matches!(
+            SqliteHarnessRepository::resolve_row_id(&connection, "trace", &shared),
+            Err(HarnessInfraError::AmbiguousRowId(..))
+        ));
+        // An unknown id is not found.
+        assert!(matches!(
+            SqliteHarnessRepository::resolve_row_id(&connection, "trace", "ZZZZZZ"),
+            Err(HarnessInfraError::RowIdNotFound(..))
+        ));
+        // Legacy numeric ids resolve exactly.
+        connection
+            .execute(
+                "INSERT INTO trace (id, task_summary) VALUES ('1', 'legacy row');",
+                [],
+            )
+            .unwrap();
+        assert_eq!(
+            SqliteHarnessRepository::resolve_row_id(&connection, "trace", "1").unwrap(),
+            "1"
+        );
+        // An unambiguous long prefix of a ULID resolves.
+        let unique_prefix: String = first.chars().take(25).collect();
+        let resolved =
+            SqliteHarnessRepository::resolve_row_id(&connection, "trace", &unique_prefix);
+        if let Ok(resolved) = resolved {
+            assert_eq!(resolved, first);
+        }
+    }
+
+    #[test]
+    fn cutover_migrate_to_events_proves_equality_and_is_idempotent() {
+        // A legacy database: rows exist but predate the event log (the
+        // upgraded-v6 situation migrate-to-events exists for).
+        let (temp_dir, repository) = test_repository();
+        repository.init().unwrap();
+        {
+            let connection = repository.open_existing().unwrap();
+            SqliteHarnessRepository::cache_meta_set(&connection, "event_backed", "false").unwrap();
+            connection
+                .execute_batch(
+                    r#"
+                    INSERT INTO intake (id, created_at, input_type, summary, risk_lane, risk_flags)
+                    VALUES ('1', '2026-06-16 07:13:57', 'maintenance', 'legacy intake', 'tiny', '["weak_proof"]');
+                    INSERT INTO story (id, title, created_at, risk_lane, status, unit_proof, evidence, verify_command, last_verified_at, last_verified_result)
+                    VALUES ('US-L1', 'legacy "quoted" story', '2026-06-16 07:14:00', 'normal', 'implemented', 1, 'evidence text', 'true', '2026-06-17 01:00:00', 'pass');
+                    INSERT INTO decision (id, title, created_at, status, doc_path)
+                    VALUES ('0004', 'legacy decision', '2026-06-16 07:15:00', 'accepted', 'docs/decisions/0004.md');
+                    INSERT INTO backlog (id, created_at, title, status, actual_outcome, implemented_at)
+                    VALUES ('1', '2026-06-16 07:16:00', 'legacy backlog', 'implemented', 'done', '2026-06-18 02:00:00');
+                    INSERT INTO tool (name, created_at, command, description, responsibility, kind, capability, scan_target, status, checked_at)
+                    VALUES ('legacy-tool', '2026-06-16 07:17:00', 'skill:x', 'Legacy tool', 'Verification', 'skill', 'impact-analysis', '.x', 'present', '2026-07-01 00:00:00');
+                    INSERT INTO trace (id, created_at, task_summary, intake_id, story_id, outcome, actions_taken)
+                    VALUES ('1', '2026-06-16 07:18:00', 'legacy trace', '1', 'US-L1', 'completed', '["a","b"]');
+                    INSERT INTO intervention (id, created_at, trace_id, type, description, source)
+                    VALUES ('1', '2026-06-16 07:19:00', '1', 'correction', 'legacy correction', 'human');
+                    INSERT INTO story_signal (id, created_at, story_id, trace_id, type, summary)
+                    VALUES ('1', '2026-06-16 07:20:00', 'US-L1', '1', 'deviation', 'legacy signal');
+                    "#,
+                )
+                .unwrap();
+        }
+
+        let service = crate::application::HarnessService::new(crate::application::HarnessContext {
+            repo_root: temp_dir.path().to_path_buf(),
+            db_path: temp_dir.path().join("harness.db"),
+            schema_dir: real_repo_root().join("scripts/schema"),
+        });
+
+        // Pre-migration, mutations refuse: the log is not yet the truth.
+        let refused = service
+            .add_backlog(BacklogAddInput {
+                title: "must refuse".to_owned(),
+                discovered_while: None,
+                current_pain: None,
+                suggestion: None,
+                risk: None,
+                predicted_impact: None,
+                notes: None,
+            })
+            .unwrap_err();
+        assert!(matches!(refused, HarnessInfraError::NotEventBacked));
+
+        let result = service.migrate_to_events().unwrap();
+        assert!(!result.already_event_backed);
+        assert_eq!(result.events_written, 8); // one genesis event per legacy row
+        assert!(result.backup_db.as_ref().unwrap().exists());
+
+        let events_dir = temp_dir.path().join(".harness/events");
+        let log = fs::read_to_string(events_dir.join("migration.jsonl")).unwrap();
+        assert_eq!(log.lines().count(), 8);
+        let first: JsonValue = serde_json::from_str(log.lines().next().unwrap()).unwrap();
+        assert_eq!(first["writer"], "migration");
+
+        // Rebuild from ONLY the migration log reproduces every durable row,
+        // with machine-local tool scan state reset (never logged).
+        let rebuild = service
+            .rebuild(Some(temp_dir.path().join("verify.db")))
+            .unwrap();
+        assert_eq!(rebuild.events_consumed, 8);
+        assert!(rebuild.table_counts.iter().all(|(_, count)| *count == 1));
+        let rebuilt = Connection::open(temp_dir.path().join("verify.db")).unwrap();
+        let (evidence, verified): (String, String) = rebuilt
+            .query_row(
+                "SELECT evidence, last_verified_result FROM story WHERE id='US-L1';",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(evidence, "evidence text");
+        assert_eq!(verified, "pass");
+        let tool_status: String = rebuilt
+            .query_row("SELECT status FROM tool;", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(tool_status, "unknown");
+
+        // Idempotent: second run is a no-op.
+        let second = service.migrate_to_events().unwrap();
+        assert!(second.already_event_backed);
+        assert_eq!(
+            fs::read_to_string(events_dir.join("migration.jsonl")).unwrap(),
+            log
+        );
+
+        // Post-migration, the cutover write path works: mutations append to
+        // this writer's log and land in the cache.
+        let new_id = service
+            .add_backlog(BacklogAddInput {
+                title: "post-cutover item".to_owned(),
+                discovered_while: None,
+                current_pain: None,
+                suggestion: None,
+                risk: None,
+                predicted_impact: None,
+                notes: None,
+            })
+            .unwrap();
+        assert_eq!(new_id.len(), 26);
+        let backlog = service.query_backlog(BacklogFilter::All).unwrap();
+        assert_eq!(backlog.len(), 2);
+    }
+
+    #[test]
+    fn cutover_incremental_replay_applies_pulled_events_before_queries() {
+        let (temp_dir, service) = events_test_service();
+        events_seed_all_ops(&service);
+
+        // Simulate `git pull`: a teammate's writer file appears with a
+        // story.update this cache has never applied.
+        let teammate = EventLog::with_writer(
+            temp_dir.path().join(".harness/events"),
+            "teammate1".to_owned(),
+        );
+        teammate
+            .emit(
+                "story.update",
+                json!({"id": "US-1", "status": "changed", "evidence": "teammate evidence"}),
+            )
+            .unwrap();
+
+        // The very next query sees the teammate's write (watermark replay).
+        let matrix = service.query_matrix().unwrap();
+        let row = matrix.iter().find(|record| record.id == "US-1").unwrap();
+        assert_eq!(row.status, "changed");
+        assert_eq!(row.evidence.as_deref(), Some("teammate evidence"));
+
+        // And the file grows: appending MORE events to the same teammate
+        // file exercises the stat+prefix-hash incremental path.
+        teammate
+            .emit("story.update", json!({"id": "US-1", "status": "retired"}))
+            .unwrap();
+        let matrix = service.query_matrix().unwrap();
+        let row = matrix.iter().find(|record| record.id == "US-1").unwrap();
+        assert_eq!(row.status, "retired");
+    }
+
+    #[test]
+    fn cutover_fresh_clone_rebuilds_cache_from_log() {
+        let (temp_dir, service) = events_test_service();
+        events_seed_all_ops(&service);
+
+        // A fresh clone has the log but no cache.
+        fs::remove_file(temp_dir.path().join("harness.db")).unwrap();
+        let fresh = crate::application::HarnessService::new(crate::application::HarnessContext {
+            repo_root: temp_dir.path().to_path_buf(),
+            db_path: temp_dir.path().join("harness.db"),
+            schema_dir: real_repo_root().join("scripts/schema"),
+        });
+        let matrix = fresh.query_matrix().unwrap();
+        assert_eq!(matrix.len(), 1);
+        assert_eq!(matrix[0].id, "US-1");
+        assert_eq!(matrix[0].status, "implemented");
+        // And the rebuilt cache accepts new writes immediately.
+        let id = fresh
+            .add_backlog(BacklogAddInput {
+                title: "post-rebuild write".to_owned(),
+                discovered_while: None,
+                current_pain: None,
+                suggestion: None,
+                risk: None,
+                predicted_impact: None,
+                notes: None,
+            })
+            .unwrap();
+        assert_eq!(id.len(), 26);
+    }
+
+    #[test]
+    fn cutover_mutation_fails_when_log_is_unwritable() {
+        let (temp_dir, service) = events_test_service();
+        // Make the events dir unwritable by replacing it with a file.
+        let events_dir = temp_dir.path().join(".harness/events");
+        if events_dir.exists() {
+            fs::remove_dir_all(&events_dir).unwrap();
+        }
+        fs::create_dir_all(temp_dir.path().join(".harness")).unwrap();
+        fs::write(&events_dir, "not a directory").unwrap();
+
+        // US-028a's shadow guarantee is flipped: the log is the write of
+        // record, so a failed append fails the command...
+        let error = service
+            .add_story(StoryAddInput {
+                id: "US-X".to_owned(),
+                title: "must fail".to_owned(),
+                risk_lane: RiskLane::from_str("normal").unwrap(),
+                contract_doc: None,
+                verify_command: None,
+                notes: None,
+            })
+            .unwrap_err();
+        assert!(matches!(error, HarnessInfraError::Io(_)));
+
+        // ...and the cache transaction rolled back with it: no drift.
+        fs::remove_file(&events_dir).unwrap();
+        let matrix = service.query_matrix().unwrap();
+        assert!(matrix.iter().all(|record| record.id != "US-X"));
+    }
+
+    fn own_writer_name(events_dir: &Path) -> String {
+        fs::read_dir(events_dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                entry
+                    .path()
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .map(str::to_owned)
+            })
+            .next()
+            .expect("one writer file")
+    }
+
+    #[test]
+    fn cutover_causal_audit_flags_concurrent_updates_and_lww_guard_holds() {
+        let (temp_dir, service) = events_test_service();
+        service
+            .add_story(StoryAddInput {
+                id: "US-1".to_owned(),
+                title: "audited story".to_owned(),
+                risk_lane: RiskLane::from_str("normal").unwrap(),
+                contract_doc: None,
+                verify_command: None,
+                notes: None,
+            })
+            .unwrap();
+        service
+            .update_story(StoryUpdateInput {
+                id: "US-1".to_owned(),
+                status: Some("in_progress".to_owned()),
+                evidence: None,
+                unit: None,
+                integration: None,
+                e2e: None,
+                platform: None,
+                verify_command: None,
+            })
+            .unwrap();
+
+        // A teammate updated the SAME field without ever observing this
+        // writer's update (concurrent), with a LATER event id: teammate wins,
+        // and the collision is audited.
+        let events_dir = temp_dir.path().join(".harness/events");
+        let teammate = EventLog::with_writer(events_dir.clone(), "teammate1".to_owned());
+        let line = EventLog::event_line(
+            "7ZZZZZZZZZZZZZZZZZZZZZZZZ1",
+            "teammate1",
+            "2026-07-02T08:00:00Z",
+            "story.update",
+            &json!({"id": "US-1", "status": "changed"}),
+            None,
+        );
+        teammate.append_line(&line).unwrap();
+
+        let matrix = service.query_matrix().unwrap();
+        assert_eq!(matrix[0].status, "changed");
+        let audit = service.audit().unwrap();
+        assert_eq!(audit.concurrent_lww_updates.len(), 1);
+        assert!(audit.concurrent_lww_updates[0].id.contains("US-1.status"));
+
+        // A LATE-ARRIVING OLDER concurrent update must not overwrite (the
+        // LWW guard is what makes incremental replay match a full rebuild)
+        // but is still audited as a loser.
+        let older = EventLog::event_line(
+            "0000000000000000000000000A",
+            "teammate2",
+            "2026-07-02T00:00:00Z",
+            "story.update",
+            &json!({"id": "US-1", "status": "retired"}),
+            None,
+        );
+        EventLog::with_writer(events_dir.clone(), "teammate2".to_owned())
+            .append_line(&older)
+            .unwrap();
+
+        let matrix = service.query_matrix().unwrap();
+        assert_eq!(matrix[0].status, "changed", "older event must not win");
+        let audit = service.audit().unwrap();
+        assert_eq!(audit.concurrent_lww_updates.len(), 2);
+
+        // Determinism: a full rebuild from the merged log converges on the
+        // same final state the incremental path produced.
+        let rebuild_path = temp_dir.path().join("rebuild.db");
+        service.rebuild(Some(rebuild_path.clone())).unwrap();
+        let rebuilt = Connection::open(&rebuild_path).unwrap();
+        let status: String = rebuilt
+            .query_row("SELECT status FROM story WHERE id='US-1';", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(status, "changed");
+    }
+
+    #[test]
+    fn cutover_observed_sequential_updates_are_not_audited() {
+        let (temp_dir, service) = events_test_service();
+        service
+            .add_story(StoryAddInput {
+                id: "US-1".to_owned(),
+                title: "sequential story".to_owned(),
+                risk_lane: RiskLane::from_str("normal").unwrap(),
+                contract_doc: None,
+                verify_command: None,
+                notes: None,
+            })
+            .unwrap();
+        service
+            .update_story(StoryUpdateInput {
+                id: "US-1".to_owned(),
+                status: Some("in_progress".to_owned()),
+                evidence: None,
+                unit: None,
+                integration: None,
+                e2e: None,
+                platform: None,
+                verify_command: None,
+            })
+            .unwrap();
+
+        // The teammate HAD pulled and consumed this writer's file before
+        // editing (happens-before): same-field update, but not concurrent.
+        let events_dir = temp_dir.path().join(".harness/events");
+        let own_writer = own_writer_name(&events_dir);
+        let line = EventLog::event_line(
+            "7ZZZZZZZZZZZZZZZZZZZZZZZZ2",
+            "teammate1",
+            "2026-07-02T08:00:00Z",
+            "story.update",
+            &json!({"id": "US-1", "status": "implemented"}),
+            Some(&json!({ own_writer: 100 })),
+        );
+        EventLog::with_writer(events_dir, "teammate1".to_owned())
+            .append_line(&line)
+            .unwrap();
+
+        let matrix = service.query_matrix().unwrap();
+        assert_eq!(matrix[0].status, "implemented");
+        let audit = service.audit().unwrap();
+        assert!(audit.concurrent_lww_updates.is_empty());
+    }
+
+    #[test]
+    fn cutover_generated_views_are_stable_projections_of_the_cache() {
+        let (temp_dir, service) = events_test_service();
+        events_seed_all_ops(&service);
+
+        let matrix_path = temp_dir.path().join("docs/TEST_MATRIX.md");
+        let backlog_path = temp_dir.path().join("docs/HARNESS_BACKLOG.md");
+        let index_path = temp_dir.path().join("docs/decisions/README.md");
+        for path in [&matrix_path, &backlog_path, &index_path] {
+            let content = fs::read_to_string(path).unwrap();
+            assert!(content.starts_with("<!-- generated by harness-cli"));
+        }
+        let matrix = fs::read_to_string(&matrix_path).unwrap();
+        assert!(matrix.contains("| US-1 |"));
+        assert!(matrix.contains("| implemented |"));
+        let backlog = fs::read_to_string(&backlog_path).unwrap();
+        assert!(backlog.contains("shadow backlog"));
+        assert!(backlog.contains("| implemented |"));
+        let index = fs::read_to_string(&index_path).unwrap();
+        assert!(index.contains("| 0001 | shadow decision | accepted |"));
+
+        // Idempotent: a pure read regenerates nothing (byte-identical).
+        let before = fs::read_to_string(&matrix_path).unwrap();
+        service.query_matrix().unwrap();
+        assert_eq!(fs::read_to_string(&matrix_path).unwrap(), before);
+    }
+
+    #[test]
+    fn cutover_migration_guard_refuses_unimported_matrix_rows() {
+        let (temp_dir, repository) = test_repository();
+        repository.init().unwrap();
+        {
+            let connection = repository.open_existing().unwrap();
+            SqliteHarnessRepository::cache_meta_set(&connection, "event_backed", "false").unwrap();
+            connection
+                .execute(
+                    "INSERT INTO story (id, title, created_at, risk_lane)
+                     VALUES ('US-A', 'known story', '2026-06-01 00:00:00', 'normal');",
+                    [],
+                )
+                .unwrap();
+        }
+        fs::create_dir_all(temp_dir.path().join("docs")).unwrap();
+        fs::write(
+            temp_dir.path().join("docs/TEST_MATRIX.md"),
+            r#"# Test Matrix
+
+| Story | Contract | Unit | Integration | E2E | Platform | Status | Evidence |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| US-A | docs/a.md | yes | no | no | no | implemented | |
+| US-GHOST | docs/ghost.md | no | no | no | no | planned | |
+"#,
+        )
+        .unwrap();
+
+        let error = repository.migrate_to_events().unwrap_err();
+        match error {
+            HarnessInfraError::MigrationVerifyFailed(detail) => {
+                assert!(detail.contains("US-GHOST"));
+                assert!(!detail.contains("US-A,"));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn clone_service(root: &Path) -> crate::application::HarnessService {
+        crate::application::HarnessService::new(crate::application::HarnessContext {
+            repo_root: root.to_path_buf(),
+            db_path: root.join("harness.db"),
+            schema_dir: real_repo_root().join("scripts/schema"),
+        })
+    }
+
+    #[test]
+    fn cutover_two_writer_git_merge_has_zero_conflicts() {
+        // THE merge_conflict_count == 0 anti-goal read (frame 0008): two
+        // clones, same human email (decision 0008 Q3 scenario), disjoint
+        // writes on diverging histories, merged with zero conflicts, rebuild
+        // on the merge contains every record from both writers.
+        let temp = tempfile::tempdir().unwrap();
+        let origin = temp.path().join("origin.git");
+        fs::create_dir_all(&origin).unwrap();
+        git(&origin, &["init", "--bare", "."]);
+
+        let clone_a = temp.path().join("a");
+        git(temp.path(), &["clone", origin.to_str().unwrap(), "a"]);
+        for (key, value) in [("user.email", "dev@example.com"), ("user.name", "Dev")] {
+            git(&clone_a, &["config", key, value]);
+        }
+        // Seed: clone A initializes and pushes the (empty) event-backed base.
+        fs::write(
+            clone_a.join(".gitignore"),
+            "harness.db*\n.harness/shadow.db\n",
+        )
+        .unwrap();
+        let service_a = clone_service(&clone_a);
+        service_a.init().unwrap();
+        service_a
+            .add_story(StoryAddInput {
+                id: "US-A".to_owned(),
+                title: "story from clone A".to_owned(),
+                risk_lane: RiskLane::from_str("normal").unwrap(),
+                contract_doc: None,
+                verify_command: None,
+                notes: None,
+            })
+            .unwrap();
+        git(&clone_a, &["add", "-A"]);
+        git(&clone_a, &["commit", "-m", "clone A state"]);
+        git(&clone_a, &["push", "origin", "HEAD:main"]);
+
+        // Clone B: same email, fresh clone (no harness.db — auto-rebuild).
+        let clone_b = temp.path().join("b");
+        git(
+            temp.path(),
+            &["clone", "--branch", "main", origin.to_str().unwrap(), "b"],
+        );
+        for (key, value) in [("user.email", "dev@example.com"), ("user.name", "Dev")] {
+            git(&clone_b, &["config", key, value]);
+        }
+        let service_b = clone_service(&clone_b);
+        let matrix_b = service_b.query_matrix().unwrap();
+        assert_eq!(matrix_b.len(), 1, "fresh clone sees A's story via rebuild");
+
+        // Diverge: A and B each write without seeing the other.
+        service_a
+            .add_backlog(BacklogAddInput {
+                title: "backlog from A".to_owned(),
+                discovered_while: None,
+                current_pain: None,
+                suggestion: None,
+                risk: None,
+                predicted_impact: None,
+                notes: None,
+            })
+            .unwrap();
+        git(&clone_a, &["add", "-A"]);
+        git(&clone_a, &["commit", "-m", "A adds backlog"]);
+        git(&clone_a, &["push", "origin", "HEAD:main"]);
+
+        service_b
+            .add_story(StoryAddInput {
+                id: "US-B".to_owned(),
+                title: "story from clone B".to_owned(),
+                risk_lane: RiskLane::from_str("normal").unwrap(),
+                contract_doc: None,
+                verify_command: None,
+                notes: None,
+            })
+            .unwrap();
+        git(&clone_b, &["add", "-A"]);
+        git(&clone_b, &["commit", "-m", "B adds story"]);
+
+        // Same email, two clones: the per-clone disambiguator must have kept
+        // their writer files distinct (decision 0008 Q3).
+        let files_b: Vec<String> = fs::read_dir(clone_b.join(".harness/events"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(files_b.len(), 2, "A's file + B's own file: {files_b:?}");
+
+        // Merge A's push into B: zero conflicts by construction.
+        git(&clone_b, &["fetch", "origin"]);
+        let merge = Command::new("git")
+            .args(["merge", "--no-edit", "origin/main"])
+            .current_dir(&clone_b)
+            .output()
+            .unwrap();
+        assert!(
+            merge.status.success(),
+            "merge_conflict_count != 0: {}",
+            String::from_utf8_lossy(&merge.stdout)
+        );
+
+        // Rebuild on the merge result contains every record from both.
+        let matrix = service_b.query_matrix().unwrap();
+        let ids: Vec<&str> = matrix.iter().map(|row| row.id.as_str()).collect();
+        assert!(ids.contains(&"US-A") && ids.contains(&"US-B"));
+        let backlog = service_b.query_backlog(BacklogFilter::All).unwrap();
+        assert_eq!(backlog.len(), 1);
+        assert_eq!(backlog[0].title, "backlog from A");
+        let rebuild = service_b.rebuild(Some(clone_b.join("verify.db"))).unwrap();
+        assert_eq!(
+            rebuild
+                .table_counts
+                .iter()
+                .map(|(_, count)| count)
+                .sum::<i64>(),
+            3
+        );
+    }
+
+    /// write_latency_ms <= 100 p95 wall read (frame 0008). Ignored in the
+    /// default suite; run with: cargo test -p harness-cli bench -- --ignored --nocapture
+    #[test]
+    #[ignore = "benchmark: run explicitly for the latency wall read"]
+    fn cutover_bench_write_latency_p95_under_wall_at_scale() {
+        for log_size in [1_000usize, 10_000, 100_000] {
+            let temp = tempfile::tempdir().unwrap();
+            let events_dir = temp.path().join(".harness/events");
+            fs::create_dir_all(&events_dir).unwrap();
+            let mut lines = String::new();
+            for index in 0..log_size {
+                lines.push_str(&EventLog::event_line(
+                    &mint_ulid(),
+                    "bench",
+                    "2026-07-02T00:00:00Z",
+                    "intake.record",
+                    &json!({
+                        "id": format!("bench-{index}"),
+                        "input_type": "maintenance",
+                        "summary": format!("bench intake row number {index} with some realistic text"),
+                        "risk_lane": "tiny",
+                    }),
+                    None,
+                ));
+                lines.push('\n');
+            }
+            fs::write(events_dir.join("bench.jsonl"), lines).unwrap();
+
+            let service = clone_service(temp.path());
+            // First touch pays the full rebuild (fresh-clone path).
+            let rebuild_start = std::time::Instant::now();
+            service.query_stats().unwrap();
+            let rebuild_ms = rebuild_start.elapsed().as_secs_f64() * 1_000.0;
+
+            let mut samples = Vec::with_capacity(50);
+            for index in 0..50 {
+                let start = std::time::Instant::now();
+                service
+                    .add_backlog(BacklogAddInput {
+                        title: format!("bench mutation {index}"),
+                        discovered_while: None,
+                        current_pain: None,
+                        suggestion: None,
+                        risk: None,
+                        predicted_impact: None,
+                        notes: None,
+                    })
+                    .unwrap();
+                samples.push(start.elapsed().as_secs_f64() * 1_000.0);
+            }
+            samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let p50 = samples[samples.len() / 2];
+            let p95 = samples[(samples.len() as f64 * 0.95) as usize];
+            println!(
+                "log={log_size}: rebuild {rebuild_ms:.1}ms, mutation p50={p50:.2}ms p95={p95:.2}ms"
+            );
+            assert!(
+                p95 < 100.0,
+                "write_latency_ms p95 {p95:.2} breaches the 100ms wall at {log_size} events"
+            );
+        }
+    }
+
+    #[test]
+    fn cutover_genesis_generation_is_deterministic() {
+        let (temp_dir, service) = events_test_service();
+        events_seed_all_ops(&service);
+        // Two independent synthesize passes over the same DB must be
+        // byte-identical (deterministic event ids + sorted key serialization).
+        let schema_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .unwrap()
+            .join("scripts/schema");
+        let repository = SqliteHarnessRepository::new(
+            temp_dir.path().to_path_buf(),
+            temp_dir.path().join("harness.db"),
+            schema_dir,
+        );
+        let connection = repository.open_existing().unwrap();
+        let first = repository.synthesize_genesis(&connection).unwrap();
+        let second = repository.synthesize_genesis(&connection).unwrap();
+        let render = |events: &[LogEvent]| -> String {
+            events
+                .iter()
+                .map(|event| {
+                    format!(
+                        "{}|{}|{}|{}|{}",
+                        event.event_id, event.writer, event.recorded_at, event.op, event.payload
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        assert_eq!(render(&first), render(&second));
+    }
+
+    #[test]
+    fn events_rebuild_on_empty_log_yields_empty_tables() {
+        let (temp_dir, service) = events_test_service();
+        let result = service
+            .rebuild(Some(temp_dir.path().join("rebuild.db")))
+            .unwrap();
+        assert_eq!(result.events_consumed, 0);
+        assert!(result.table_counts.iter().all(|(_, count)| *count == 0));
+    }
+
     #[test]
     fn init_creates_database_and_schema() {
         let (_temp_dir, repository) = test_repository();
@@ -2061,7 +4545,7 @@ mod tests {
         assert_eq!(repository.query_stats().unwrap().intakes, 0);
         let connection = repository.open_existing().unwrap();
         let schema_version = SqliteHarnessRepository::schema_version(&connection).unwrap();
-        assert_eq!(schema_version, 6);
+        assert_eq!(schema_version, 7);
         let story_columns = story_columns(&connection);
         assert!(story_columns.contains(&"verify_command".to_owned()));
         assert!(story_columns.contains(&"last_verified_at".to_owned()));
@@ -2078,11 +4562,11 @@ mod tests {
         let result = repository.migrate().unwrap();
 
         assert_eq!(result.current_version, 1);
-        assert_eq!(result.applied, vec![2, 3, 4, 5, 6]);
+        assert_eq!(result.applied, vec![2, 3, 4, 5, 6, 7]);
         let connection = repository.open_existing().unwrap();
         assert_eq!(
             SqliteHarnessRepository::schema_version(&connection).unwrap(),
-            6
+            7
         );
         let story_columns = story_columns(&connection);
         assert!(story_columns.contains(&"verify_command".to_owned()));
@@ -2133,7 +4617,7 @@ mod tests {
 
         // Upgrade: migration 005 must infer kind from the command prefix.
         // (Migration 006 adds story_signal and rides along in the same upgrade.)
-        assert_eq!(repository.migrate().unwrap().applied, vec![5, 6]);
+        assert_eq!(repository.migrate().unwrap().applied, vec![5, 6, 7]);
         let connection = repository.open_existing().unwrap();
         let kind_of = |name: &str| -> String {
             connection
@@ -2167,7 +4651,8 @@ mod tests {
             .unwrap();
 
         let intakes = repository.query_intakes().unwrap();
-        assert_eq!(id, 1);
+        assert_eq!(id.len(), 26);
+        assert_eq!(intakes[0].id, id);
         assert_eq!(intakes[0].summary, "Port one CLI slice");
         assert_eq!(intakes[0].input_type, "harness_improvement");
         assert_eq!(intakes[0].risk_lane, "high_risk");
@@ -2559,7 +5044,7 @@ mod tests {
             .unwrap();
         repository
             .add_intervention(InterventionAddInput {
-                trace_id: Some(trace_id),
+                trace_id: Some(trace_id.clone()),
                 story_id: Some("US-I".to_owned()),
                 intervention_type: "correction".to_owned(),
                 description: "Use error handling instead of unwrap".to_owned(),
@@ -2571,7 +5056,7 @@ mod tests {
         assert_eq!(
             repository
                 .query_interventions(InterventionFilter {
-                    trace_id: Some(trace_id),
+                    trace_id: Some(trace_id.clone()),
                     story_id: None,
                     intervention_type: None,
                 })
@@ -2629,9 +5114,16 @@ mod tests {
                 notes: None,
             })
             .unwrap();
+        let backlog_id = repository
+            .query_backlog(BacklogFilter::All)
+            .unwrap()
+            .last()
+            .expect("backlog row")
+            .id
+            .clone();
         repository
             .close_backlog(BacklogCloseInput {
-                id: 1,
+                id: backlog_id,
                 status: "implemented".to_owned(),
                 actual_outcome: None,
             })
@@ -2811,7 +5303,7 @@ mod tests {
                 errors: CsvList::from_optional(None),
             })
             .unwrap();
-        assert_eq!(trace_id, 1);
+        assert_eq!(trace_id.len(), 26);
         assert_eq!(
             repository.query_traces().unwrap()[0].task_summary,
             "Test trace"
@@ -2840,7 +5332,7 @@ mod tests {
         repository
             .record_trace(TraceInput {
                 task_summary: "Trace without friction".to_owned(),
-                intake_id: Some(intake_id),
+                intake_id: Some(intake_id.clone()),
                 story_id: None,
                 agent: Some("codex".to_owned()),
                 outcome: Some("completed".to_owned()),
@@ -2858,7 +5350,7 @@ mod tests {
         repository
             .record_trace(TraceInput {
                 task_summary: "Trace with linked friction".to_owned(),
-                intake_id: Some(intake_id),
+                intake_id: Some(intake_id.clone()),
                 story_id: None,
                 agent: Some("codex".to_owned()),
                 outcome: Some("completed".to_owned()),
@@ -2996,7 +5488,6 @@ implemented
         repository.init().unwrap();
 
         let first = repository.import_brownfield().unwrap();
-        let second = repository.import_brownfield().unwrap();
 
         assert_eq!(
             first,
@@ -3006,7 +5497,12 @@ implemented
                 backlog_items: 2,
             }
         );
-        assert_eq!(second.backlog_items, 2);
+        // Decision 0008 Q4: brownfield is a one-time seed. The seed itself
+        // ran migrate-to-events, so a re-run refuses instead of re-importing.
+        assert!(matches!(
+            repository.import_brownfield().unwrap_err(),
+            HarnessInfraError::BrownfieldOnEventBacked
+        ));
 
         let matrix = repository.query_matrix().unwrap();
         assert_eq!(matrix[0].id, "US-010");
@@ -3063,7 +5559,7 @@ implemented
             .unwrap();
         repository
             .close_backlog(BacklogCloseInput {
-                id: implemented_id,
+                id: implemented_id.clone(),
                 status: "implemented".to_owned(),
                 actual_outcome: Some("Proof gaps were found earlier.".to_owned()),
             })
@@ -3147,7 +5643,7 @@ implemented
             .iter()
             .any(|field| field.starts_with("decisions_made")));
 
-        let specific = repository.score_trace(Some(first_trace)).unwrap();
+        let specific = repository.score_trace(Some(first_trace.clone())).unwrap();
         assert_eq!(specific.trace_id, first_trace);
         assert_eq!(specific.achieved, TraceQualityTier::Minimal);
         assert_eq!(specific.required, None);

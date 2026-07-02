@@ -60,8 +60,19 @@ enum Command {
     Audit,
     /// Generate improvement proposals from observed patterns.
     Propose(ProposeArgs),
+    /// Rebuild a fresh cache from the .harness/events/ log (shadow mode).
+    Rebuild(RebuildArgs),
+    /// Migrate an existing database to the event log (proves equality first).
+    MigrateToEvents,
     /// Query harness data.
     Query(QueryArgs),
+}
+
+#[derive(Args, Debug)]
+struct RebuildArgs {
+    /// Where to write the rebuilt cache (default: .harness/shadow.db).
+    #[arg(long)]
+    output: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -503,7 +514,7 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                 story_id: args.story,
                 notes: args.notes,
             })?;
-            println!("Intake #{id} recorded.");
+            println!("Intake {id} recorded.");
         }
         Command::Story(args) => match args.action {
             StoryAction::Add(args) => {
@@ -554,13 +565,13 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                 SignalAction::Add(args) => {
                     let id = service.add_story_signal(StorySignalAddInput {
                         story_id: args.story,
-                        trace_id: parse_optional_integer("story signal add: --trace", args.trace)?,
+                        trace_id: args.trace,
                         signal_type: args.signal_type,
                         summary: args.summary,
                         component: args.component,
                         notes: args.notes,
                     })?;
-                    println!("Story signal #{id} recorded.");
+                    println!("Story signal {id} recorded.");
                 }
             },
         },
@@ -600,18 +611,17 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                     predicted_impact: args.predicted,
                     notes: args.notes,
                 })?;
-                println!("Backlog #{id} added.");
+                println!("Backlog {id} added.");
             }
             BacklogAction::Close(args) => {
-                let id = parse_optional_integer("backlog close: --id", Some(args.id))?
-                    .expect("value provided");
+                let id = args.id;
                 let status = args.status;
                 service.close_backlog(BacklogCloseInput {
-                    id,
+                    id: id.clone(),
                     status: status.clone(),
                     actual_outcome: args.outcome,
                 })?;
-                println!("Backlog #{id} closed as {status}.");
+                println!("Backlog {id} closed as {status}.");
             }
         },
         Command::Tool(args) => match args.action {
@@ -651,21 +661,21 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
         Command::Intervention(args) => match args.action {
             InterventionAction::Add(args) => {
                 let id = service.add_intervention(InterventionAddInput {
-                    trace_id: parse_optional_integer("intervention add: --trace", args.trace)?,
+                    trace_id: args.trace,
                     story_id: args.story,
                     intervention_type: args.intervention_type,
                     description: args.description,
                     source: args.source,
                     impact: args.impact,
                 })?;
-                println!("Intervention #{id} recorded.");
+                println!("Intervention {id} recorded.");
             }
         },
         Command::Trace(args) => {
             let story_id = args.story.clone();
             let id = service.record_trace(TraceInput {
                 task_summary: args.summary,
-                intake_id: parse_optional_integer("trace: --intake", args.intake)?,
+                intake_id: args.intake,
                 story_id: args.story,
                 agent: args.agent,
                 outcome: args.outcome,
@@ -679,7 +689,7 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                 decisions: CsvList::from_optional(args.decisions),
                 errors: CsvList::from_optional(args.errors),
             })?;
-            println!("Trace #{id} recorded.");
+            println!("Trace {id} recorded.");
             let result = service.score_trace(Some(id))?;
             print_trace_score(&result, false);
             println!("Reminder: Record any human corrections with: harness-cli intervention add");
@@ -688,20 +698,53 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
             }
         }
         Command::ScoreTrace(args) => {
-            let id = parse_optional_integer("score-trace: --id", args.id)?;
-            let result = service.score_trace(id)?;
-            print_trace_score(&result, id.is_none());
+            let latest = args.id.is_none();
+            let result = service.score_trace(args.id)?;
+            print_trace_score(&result, latest);
             if !result.meets_requirement {
                 std::process::exit(1);
             }
         }
         Command::ScoreContext { trace_id } => {
-            let id = parse_optional_integer("score-context: trace-id", Some(trace_id))?
-                .expect("value provided");
-            print_context_score(&service.score_context(id)?);
+            print_context_score(&service.score_context(&trace_id)?);
         }
         Command::Audit => print_audit(&service.audit()?),
         Command::Propose(args) => print_proposals(&service.propose(args.commit)?),
+        Command::MigrateToEvents => {
+            let result = service.migrate_to_events()?;
+            if result.already_event_backed {
+                println!("Already event-backed; nothing to migrate.");
+            } else {
+                println!(
+                    "Migrated {} rows to .harness/events/migration.jsonl (proof: per-table count + content-hash equality, tool scan columns excluded).",
+                    result.events_written
+                );
+                for (table, count) in &result.table_counts {
+                    println!("  {table}: {count}");
+                }
+                if let Some(backup) = &result.backup_db {
+                    println!("old DB backed up at {}", backup.display());
+                }
+                if result.archived_log_files > 0 {
+                    println!(
+                        "{} pre-cutover shadow log file(s) archived to .harness/backup/pre-migration-events/",
+                        result.archived_log_files
+                    );
+                }
+            }
+        }
+        Command::Rebuild(args) => {
+            let result = service.rebuild(args.output)?;
+            println!(
+                "Rebuilt {} from {} events.",
+                result.db_path.display(),
+                result.events_consumed
+            );
+            for (table, count) in &result.table_counts {
+                println!("  {table}: {count}");
+            }
+            println!("dump hash: {}", result.dump_hash);
+        }
         Command::Query(args) => match args.view {
             QueryView::Matrix(args) => print_matrix(&service.query_matrix()?, args.numeric),
             QueryView::Backlog(args) => {
@@ -733,9 +776,8 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                 }
             }
             QueryView::Interventions(args) => {
-                let trace_id = parse_optional_integer("query interventions: --trace", args.trace)?;
                 print_interventions(&service.query_interventions(InterventionFilter {
-                    trace_id,
+                    trace_id: args.trace,
                     story_id: args.story,
                     intervention_type: args.intervention_type,
                 })?);
@@ -880,6 +922,10 @@ fn print_audit(result: &crate::domain::AuditResult) {
     );
     print_audit_category("Stale stories", &result.stale_stories);
     print_audit_category("Broken tools", &result.broken_tools);
+    print_audit_category(
+        "Concurrent LWW updates (causal audit)",
+        &result.concurrent_lww_updates,
+    );
     println!(
         "Entropy score: {}/100 (lower is better)",
         result.entropy_score()
@@ -914,7 +960,7 @@ fn print_proposals(proposals: &[ImprovementProposal]) {
         println!("  Risk: {}", proposal.risk);
         println!("  Suggested action: {}", proposal.suggested_action);
         println!("  Validation: {}", proposal.validation_plan);
-        if let Some(id) = proposal.committed_backlog_id {
+        if let Some(id) = &proposal.committed_backlog_id {
             println!("  Created backlog item #{id}");
         }
     }
@@ -1314,6 +1360,7 @@ fn print_interventions(records: &[InterventionRecord]) {
                 record.created_at.clone(),
                 record
                     .trace_id
+                    .clone()
                     .map(|value| value.to_string())
                     .unwrap_or_default(),
                 record.story_id.clone().unwrap_or_default(),

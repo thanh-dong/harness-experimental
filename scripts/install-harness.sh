@@ -154,12 +154,16 @@ merge_gitignore() {
 local rules="harness.db
 harness.db-wal
 harness.db-shm
+.harness/shadow.db
+.harness/backup/
+.harness/tmp-migration-verify.db
 scripts/bin/harness-cli
 scripts/bin/harness-cli.exe"
 
 if grep -Fxq "harness.db" "$target" &&
    grep -Fxq "harness.db-wal" "$target" &&
    grep -Fxq "harness.db-shm" "$target" &&
+   grep -Fxq ".harness/shadow.db" "$target" &&
    grep -Fxq "scripts/bin/harness-cli" "$target" &&
    grep -Fxq "scripts/bin/harness-cli.exe" "$target"; then
     log "skip     .gitignore (harness rules already present)"
@@ -878,6 +882,7 @@ scripts/schema/003-tool-registry.sql
 scripts/schema/004-intervention.sql
 scripts/schema/005-tool-extensions.sql
 scripts/schema/006-story-signal.sql
+scripts/schema/007-ulid-ids.sql
 .gitignore
 EOF
 

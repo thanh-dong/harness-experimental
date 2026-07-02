@@ -1,0 +1,87 @@
+{
+  "dkr_id": "DKR-1",
+  "decision_target": "Retention/compaction posture for US-028c and commit-noise (pr_reviewability) risk assessment for logging all 8 tables (incl. telemetry) in git.",
+  "evidence": [
+    {
+      "claim": "Current durable state is tiny and telemetry-dominated by bytes.",
+      "source": "sqlite3 file:harness.db?mode=ro over 8 durable tables; scratchpad/dkr-1/measure.py",
+      "numbers": "20 rows total (intake 4, story 2, decision 2, backlog 2, trace 4, tool 1, intervention 1, story_signal 4) over 16-day repo life (2026-06-16 -> 2026-07-02). Telemetry (trace+intervention+signal) = 10113B = 61% of all event bytes; traces alone = 7502B = 45%."
+    },
+    {
+      "claim": "Per-event byte distribution: core events are small and uniform; trace events are ~3x larger and the only chatty record.",
+      "source": "measure.py, compact JSON event envelope (26-char ULID, writer, recorded_at, op, schema, payload) + newline",
+      "numbers": "intake 471-569B (median 529); story 592-608 (600); decision 607-632 (619); backlog 644-769 (706); tool 576; intervention 599; story_signal 347-637 (514); trace 1351-2324 (median 1913). Blended avg 657B."
+    },
+    {
+      "claim": "Update events have minor byte impact because the large records (traces) are immutable.",
+      "source": "measure.py typical update sizes",
+      "numbers": "story.update 195B, story.verify_result 233B, backlog.close 203B. Updates apply only to small core tables (story/decision/backlog); trace/intervention/signal are insert-only. Update uplift modeled at ~+40% events on 6 mutable rows ~= +1764B over repo life (~120B/day)."
+    },
+    {
+      "claim": "Observed per-day byte rate (single active writer, incl update uplift).",
+      "source": "project.py",
+      "numbers": "all+telemetry ~1150 B/day; core-only ~518 B/day; telemetry-only ~632 B/day. ~1.8 events/day."
+    },
+    {
+      "claim": "Projected log size, telemetry ON vs OFF, at 6 and 24 months.",
+      "source": "project.py; scenario A = this repo (1 writer), scenario B = 4-person team @ 3x/person = 12x",
+      "numbers": "A/1-writer: 6mo 204KB on / 92KB off; 24mo 820KB on / 369KB off. B/team-12x: 6mo 2.4MB on / 1.1MB off; 24mo 9.6MB on / 4.3MB off (~21 events/day)."
+    },
+    {
+      "claim": "Byte thresholds are far out at team scale.",
+      "source": "project.py threshold sweep, team 12x",
+      "numbers": "telemetry ON: 1MB @ 2.5mo, 5MB @ 12.5mo, 10MB @ 25mo, 50MB @ 125mo. telemetry OFF: 1MB @ 5.5mo, 10MB @ 55mo."
+    },
+    {
+      "claim": "The binding constraint is event COUNT (replay cost), not bytes. The spec's own perf budget is p95<=100ms at 10k events.",
+      "source": "US-028 Acceptance Criteria + Benchmark rows; project.py event-count context",
+      "numbers": "10k events ~= 6.3MB; 5k ~= 3.1MB; 100k ~= 62.7MB. Team-12x reaches 10k events at ~476 days (~15.6mo, telemetry ON); single writer never within 24mo (~1278 events)."
+    },
+    {
+      "claim": "Git storage cost is ~4x below raw working-tree size; repo bloat is a non-issue.",
+      "source": "gzip of synthesized events.jsonl (proxy for git zlib/delta on append-only JSON)",
+      "numbers": "16639B raw -> 3969B gzip = 4.2x (24% of raw). So 10MB raw log ~= 2.4MB packed in git history."
+    }
+  ],
+  "questions_answered": [
+    "events/day and bytes/day at observed rate: ~1.8 events/day, ~1150 B/day (single writer).",
+    "bytes-per-event distribution per table incl. long-text traces: measured (traces median 1913B, max 2324B; core median ~590B).",
+    "6-month and 24-month projections with and without the 3 telemetry tables, both this-repo and 4-person-3x scenarios: computed.",
+    "at what size/timeframe the log becomes a problem: NOT a byte/bloat problem within 24mo (<=9.6MB raw / <=2.4MB packed at team scale); the real limit is replay event-count vs the 10k/100ms perf budget (~15.6mo at team scale).",
+    "recommended compaction trigger for US-028c: event-count based at ~5,000 events (half the 10k perf-test point), with a secondary ~5MB raw size guard, plus telemetry-age snapshotting."
+  ],
+  "questions_unanswered": [
+    "True update-event frequency: DB shows only final state, so the update multiplier is estimated (+40%), not observed.",
+    "Whether the target team's real activity is 3x/person; the 12x scenario is an assumption from the packet.",
+    "Real git packfile behavior for one-file-per-writer append-only JSONL across many commits (measured gzip proxy, not an actual pack over history).",
+    "Retention semantics for traces once mined: summarize/aggregate vs snapshot-out - a design call, not a measurement."
+  ],
+  "confidence_update": [
+    "P(log exceeds 10MB RAW within 24 months, 4-person team, telemetry ON) ~ 0.45 because the 12x projection lands right at the 25-month boundary; higher activity or update rate pulls it inside 24mo, lower pushes it out.",
+    "P(log exceeds 10MB PACKED-in-git within 24 months, team, telemetry ON) ~ 0.05 because JSONL compresses 4.2x, putting packed size ~2.4MB.",
+    "P(PR-reviewability materially degrades from log growth within 24 months) ~ 0.15 because generated markdown views absorb human review; the only wrinkle is ~1900B single-line trace events, mitigated by the 'generated -- do not hand-edit' marker + .gitattributes linguist-generated.",
+    "P(event count reaches the 10k perf-budget point within 24 months, team 12x, telemetry ON) ~ 0.6 because ~15.6mo at 12x; telemetry OFF pushes it out ~2.3x."
+  ],
+  "risk_or_anti_goal_implications": [
+    "pr_reviewability (drift): SAFE near-term. Protected by generated views, not by log size. Enforce the 'generated' marker and add .gitattributes linguist-generated=true / -diff for .harness/events/*.jsonl so long trace lines stay out of human-reviewed diffs.",
+    "repo bloat: NON-ISSUE for 24+ months at team scale (<=10MB raw, <=2.4MB packed) - well within normal git repo norms.",
+    "write_latency_ms<=100 (drift) / rebuild: the driver is event COUNT via incremental replay + full rebuild, not bytes. Compaction must target count to protect the 10k/100ms budget.",
+    "telemetry-in-git is the right call by the numbers: it costs ~55-61% of bytes but the absolute totals stay small; the mining prize outweighs the storage cost. The cost is deferrable to compaction, not a reason to keep telemetry out."
+  ],
+  "promotion_recommendation": "PROMOTE 'all 8 tables incl. telemetry logged in git' as byte/bloat-safe: 24-month team projection is <=9.6MB raw / <=2.4MB packed, far from any repo-bloat or PR-reviewability wall. HOLD the hard retention decision for the US-028c boundary (as ratified) but pre-commit the design SHAPE now: US-028c compaction should trigger on EVENT COUNT (~5,000 events, with a ~5MB raw secondary guard) rather than bytes, because replay count - not size - is what the spec's own perf budget (p95<=100ms @ 10k events) constrains. Highest-leverage retention lever is telemetry-age snapshotting (fold trace events older than ~90 days into .harness/snapshots/ so append-only provenance survives but the replay hot-path stays small). Tell the orchestrator the byte-growth anti-goal wall is distant; the real design decision is replay-count compaction + telemetry snapshotting.",
+  "next_unknowns": [
+    "Instrument actual CLI mutation frequency (inserts vs updates) to replace the estimated +40% update multiplier.",
+    "Confirm the target team's real activity multiplier vs the assumed 3x/person.",
+    "Decide trace retention semantics for US-028c: snapshot-out vs summarize/aggregate after propose mining.",
+    "Validate real git packfile growth for append-only per-writer JSONL over many commits (vs the gzip proxy used here)."
+  ],
+  "artifacts": [
+    "/private/tmp/claude-501/-Users-thanhdq-sources--folks-harness-repository-cc/6b37c7a4-e0d0-4625-9d0e-3a8e081d32d2/scratchpad/dkr-1/measure.py",
+    "/private/tmp/claude-501/-Users-thanhdq-sources--folks-harness-repository-cc/6b37c7a4-e0d0-4625-9d0e-3a8e081d32d2/scratchpad/dkr-1/project.py",
+    "/private/tmp/claude-501/-Users-thanhdq-sources--folks-harness-repository-cc/6b37c7a4-e0d0-4625-9d0e-3a8e081d32d2/scratchpad/dkr-1/gen.py",
+    "/private/tmp/claude-501/-Users-thanhdq-sources--folks-harness-repository-cc/6b37c7a4-e0d0-4625-9d0e-3a8e081d32d2/scratchpad/dkr-1/events.jsonl",
+    "/private/tmp/claude-501/-Users-thanhdq-sources--folks-harness-repository-cc/6b37c7a4-e0d0-4625-9d0e-3a8e081d32d2/scratchpad/dkr-1/events.jsonl.gz",
+    "/private/tmp/claude-501/-Users-thanhdq-sources--folks-harness-repository-cc/6b37c7a4-e0d0-4625-9d0e-3a8e081d32d2/scratchpad/dkr-1/checkpoint.json"
+  ],
+  "status": "complete"
+}
