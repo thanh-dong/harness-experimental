@@ -18,6 +18,9 @@ Classify input type
 Restate as work item
     |
     v
+Run unknowns check
+    |
+    v
 Find affected product docs and stories
     |
     v
@@ -44,9 +47,27 @@ lane.
 | New initiative | Adding a larger product area that needs multiple stories | Initiative notes plus story packets |
 | Maintenance request | Changing technical, operational, or dependency behavior | Story packet, validation report, or decision |
 | Harness improvement | Improving how humans and agents collaborate | Direct docs update or `scripts/bin/harness-cli backlog add` |
+| Spike / prototype | Exploring an approach, UX, or feasibility before committing to behavior | Throwaway prototype under a story packet `prototypes/` folder |
 
 Do not create or extend a monolithic spec by default after intake. Use product
 docs, stories, decisions, and initiative notes as the living surface.
+
+Spikes run with tiny-lane mechanics: record the intake row, keep artifacts under
+the related story packet's `prototypes/` folder (or `docs/stories/spikes/` when
+no story exists yet), and skip product-doc and proof requirements — a spike is
+not accepted behavior. When the spike ends, promote its findings into a story or
+delete the artifacts; a spike left in place is drift.
+
+## Unknowns Check
+
+Before choosing a lane, list the top unknowns in the restated work item:
+ambiguous intent, missing constraints, and unknown territory (unfamiliar code or
+domain). If any answer would change the lane, the architecture, or a public
+contract, interview the human — one question at a time, prioritizing questions
+whose answer changes the architecture — before proceeding. Record the answers in
+the intake `--notes` and the story packet so they become durable known-knowns.
+If no unknown clears that bar, proceed without questions; the check is a gate on
+ambiguity, not a mandatory interview.
 
 ## Lanes
 
@@ -128,6 +149,9 @@ and update it **as you go**, capturing:
 
 - **Design decisions** — choices made where the spec was ambiguous, and why.
 - **Deviations** — where you intentionally departed from the plan, and why.
+  Default policy when implementation hits an unplanned unknown: pick the
+  conservative option, log it here, and keep going. Pause for the human only
+  when the deviation touches a hard gate or a high-risk stop condition.
 - **Tradeoffs** — alternatives considered and why you picked what you did.
 - **Open questions** — anything to confirm, each with your recommendation.
 

@@ -16,6 +16,7 @@ use serde_json::json;
 
 use crate::application::{
     BacklogAddInput, BacklogCloseInput, BrownfieldImportResult, DecisionAddInput,
+    DecisionUpdateInput,
     DecisionVerifyResult, HarnessContext, InitResult, IntakeInput, InterventionAddInput,
     InterventionFilter, MigrateResult, QueryTable, StoryAddInput, StorySignalAddInput,
     StorySignalFilter, StoryUpdateInput, StoryVerifyResult, ToolRegisterInput, TraceInput,
@@ -31,10 +32,17 @@ use crate::domain::{
 
 pub type Result<T> = std::result::Result<T, HarnessInfraError>;
 
+/// Highest schema version this binary can read and write. `migrate` refuses
+/// newer migration files instead of applying SQL it cannot operate against
+/// (a stale binary that migrates forward bricks its own write path).
+pub const SUPPORTED_SCHEMA_VERSION: i64 = 8;
+
 #[derive(Debug, Error)]
 pub enum HarnessInfraError {
     #[error("database not found at {0}. Run: harness init")]
     MissingDatabase(String),
+    #[error("schema migration v{0} is newer than this binary supports (v{1}). Update harness-cli before migrating.")]
+    UnsupportedSchemaVersion(i64, i64),
     #[error("schema file missing: {0}")]
     MissingSchema(String),
     #[error("brownfield import: missing {0}")]
@@ -61,6 +69,10 @@ pub enum HarnessInfraError {
     NoTraces,
     #[error("story update: nothing to update")]
     EmptyStoryUpdate,
+    #[error("decision update: decision '{0}' not found")]
+    DecisionNotFound(String),
+    #[error("decision update: nothing to update")]
+    EmptyDecisionUpdate,
     #[error("rebuild: corrupt event log {0}: {1}")]
     CorruptEventLog(String, String),
     #[error("migrate-to-events verification failed: {0}")]
@@ -96,6 +108,7 @@ pub trait HarnessRepository {
     fn verify_story(&self, id: &str) -> Result<StoryVerifyResult>;
     fn verify_all_stories(&self) -> Result<StoryVerifyAllResult>;
     fn add_decision(&self, input: DecisionAddInput) -> Result<()>;
+    fn update_decision(&self, input: DecisionUpdateInput) -> Result<()>;
     fn verify_decision(&self, id: &str) -> Result<DecisionVerifyResult>;
     fn add_backlog(&self, input: BacklogAddInput) -> Result<String>;
     fn close_backlog(&self, input: BacklogCloseInput) -> Result<()>;
@@ -262,6 +275,7 @@ impl SqliteHarnessRepository {
                 | "backlog.add"
                 | "backlog.close"
                 | "decision.add"
+                | "decision.update"
                 | "decision.verify_result"
         ) {
             self.regenerate_views(connection)?;
@@ -508,6 +522,12 @@ impl SqliteHarnessRepository {
     ) -> Result<Vec<i64>> {
         let mut applied = Vec::new();
         for (version, path) in self.migration_files()? {
+            if version > SUPPORTED_SCHEMA_VERSION {
+                return Err(HarnessInfraError::UnsupportedSchemaVersion(
+                    version,
+                    SUPPORTED_SCHEMA_VERSION,
+                ));
+            }
             if version > current_version {
                 let sql = fs::read_to_string(path)?;
                 connection.execute_batch(&sql)?;
@@ -810,7 +830,15 @@ impl HarnessRepository for SqliteHarnessRepository {
         self.apply_schema_v1(&connection)?;
         self.apply_pending_migrations(&connection, 1)?;
         // A fresh database is event-backed from genesis: its (empty) log is
-        // the source of truth from the first write.
+        // the source of truth from the first write. Materialize the events
+        // dir (with a .gitkeep, since git cannot track an empty dir) so the
+        // SETUP.md `git add .harness/events` step works before any write.
+        let events_dir = self.events_dir();
+        fs::create_dir_all(&events_dir)?;
+        let gitkeep = events_dir.join(".gitkeep");
+        if !gitkeep.exists() {
+            fs::write(&gitkeep, "")?;
+        }
         Self::cache_meta_set(&connection, "event_backed", "true")?;
         Ok(InitResult::Created {
             db_path: self.db_path.clone(),
@@ -1055,6 +1083,51 @@ impl HarnessRepository for SqliteHarnessRepository {
             "notes": input.notes,
         });
         self.append_and_apply(&connection, "decision.add", payload)
+    }
+
+    fn update_decision(&self, input: DecisionUpdateInput) -> Result<()> {
+        if input.title.is_none()
+            && input.status.is_none()
+            && input.doc_path.is_none()
+            && input.verify_command.is_none()
+            && input.predicted_impact.is_none()
+            && input.notes.is_none()
+        {
+            return Err(HarnessInfraError::EmptyDecisionUpdate);
+        }
+
+        let connection = self.open_fresh()?;
+        let exists: Option<String> = connection
+            .query_row(
+                "SELECT id FROM decision WHERE id=?1;",
+                params![input.id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if exists.is_none() {
+            return Err(HarnessInfraError::DecisionNotFound(input.id));
+        }
+        let mut payload = serde_json::Map::new();
+        payload.insert("id".to_owned(), json!(input.id));
+        if let Some(title) = &input.title {
+            payload.insert("title".to_owned(), json!(title));
+        }
+        if let Some(status) = &input.status {
+            payload.insert("status".to_owned(), json!(status));
+        }
+        if let Some(doc_path) = &input.doc_path {
+            payload.insert("doc_path".to_owned(), json!(doc_path));
+        }
+        if let Some(verify_command) = &input.verify_command {
+            payload.insert("verify_command".to_owned(), json!(verify_command));
+        }
+        if let Some(predicted_impact) = &input.predicted_impact {
+            payload.insert("predicted_impact".to_owned(), json!(predicted_impact));
+        }
+        if let Some(notes) = &input.notes {
+            payload.insert("notes".to_owned(), json!(notes));
+        }
+        self.append_and_apply(&connection, "decision.update", JsonValue::Object(payload))
     }
 
     fn verify_decision(&self, id: &str) -> Result<DecisionVerifyResult> {
@@ -2339,22 +2412,40 @@ fn repeated_interventions(connection: &Connection) -> Result<Vec<(String, usize)
 
 fn repeated_story_signals(connection: &Connection) -> Result<Vec<(String, String, usize)>> {
     let mut statement = connection.prepare(
-        "SELECT type, summary FROM story_signal
+        "SELECT type, summary, COALESCE(story_id, '') FROM story_signal
          WHERE TRIM(summary) <> '';",
     )?;
     let rows = statement.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+        ))
     })?;
     let pairs = collect_rows(rows)?;
-    let mut grouped: Vec<(String, String, String, usize)> = Vec::new();
-    for (signal_type, summary) in pairs {
+    // Recurrence means the same signal across distinct stories; duplicate
+    // signals on one story are noise, not a spec gap. Signals without a
+    // story id cannot be deduplicated, so each counts as its own occurrence.
+    let mut grouped: Vec<(String, String, String, Vec<String>)> = Vec::new();
+    for (index, (signal_type, summary, story_id)) in pairs.into_iter().enumerate() {
+        let story_id = if story_id.is_empty() {
+            format!("?unattributed-{index}")
+        } else {
+            story_id
+        };
         let key = format!("{}|{}", signal_type, normalize_token(&summary));
         if let Some(existing) = grouped.iter_mut().find(|item| item.0 == key) {
-            existing.3 += 1;
+            if !existing.3.contains(&story_id) {
+                existing.3.push(story_id);
+            }
         } else {
-            grouped.push((key, signal_type, summary, 1));
+            grouped.push((key, signal_type, summary, vec![story_id]));
         }
     }
+    let grouped: Vec<(String, String, String, usize)> = grouped
+        .into_iter()
+        .map(|(key, signal_type, summary, stories)| (key, signal_type, summary, stories.len()))
+        .collect();
     Ok(grouped
         .into_iter()
         .filter(|(_, _, _, count)| *count >= 2)
@@ -3247,6 +3338,26 @@ fn apply_event(connection: &Connection, event: &LogEvent) -> Result<()> {
                 ],
             )?;
         }
+        "decision.update" => {
+            const FIELDS: [&str; 6] = [
+                "title",
+                "status",
+                "doc_path",
+                "verify_command",
+                "predicted_impact",
+                "notes",
+            ];
+            if let Some(id) = p_str(payload, "id") {
+                for field in FIELDS {
+                    if let Some(value) = p_str(payload, field) {
+                        connection.execute(
+                            &format!("UPDATE decision SET {field}=?1 WHERE id=?2;"),
+                            params![value, id],
+                        )?;
+                    }
+                }
+            }
+        }
         "decision.verify_result" => {
             connection.execute(
                 "UPDATE decision SET last_verified_at=?1, last_verified_result=?2 WHERE id=?3;",
@@ -3644,6 +3755,7 @@ mod tests {
         let mut files: Vec<_> = fs::read_dir(&events_dir)
             .unwrap()
             .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("jsonl"))
             .collect();
         files.sort();
         assert_eq!(files.len(), 1, "one writer, one file");
@@ -3742,10 +3854,9 @@ mod tests {
         let events_dir = temp_dir.path().join(".harness/events");
         let file = fs::read_dir(&events_dir)
             .unwrap()
-            .next()
-            .unwrap()
-            .unwrap()
-            .path();
+            .map(|entry| entry.unwrap().path())
+            .find(|path| path.extension().and_then(|e| e.to_str()) == Some("jsonl"))
+            .unwrap();
         let mut content = fs::read_to_string(&file).unwrap();
         content.push_str("{not json\n");
         fs::write(&file, content).unwrap();
@@ -4084,6 +4195,7 @@ mod tests {
         fs::read_dir(events_dir)
             .unwrap()
             .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("jsonl"))
             .filter_map(|entry| {
                 entry
                     .path()
@@ -4394,6 +4506,7 @@ mod tests {
         let files_b: Vec<String> = fs::read_dir(clone_b.join(".harness/events"))
             .unwrap()
             .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".jsonl"))
             .collect();
         assert_eq!(files_b.len(), 2, "A's file + B's own file: {files_b:?}");
 
@@ -4545,7 +4658,7 @@ mod tests {
         assert_eq!(repository.query_stats().unwrap().intakes, 0);
         let connection = repository.open_existing().unwrap();
         let schema_version = SqliteHarnessRepository::schema_version(&connection).unwrap();
-        assert_eq!(schema_version, 7);
+        assert_eq!(schema_version, SUPPORTED_SCHEMA_VERSION);
         let story_columns = story_columns(&connection);
         assert!(story_columns.contains(&"verify_command".to_owned()));
         assert!(story_columns.contains(&"last_verified_at".to_owned()));
@@ -4562,11 +4675,11 @@ mod tests {
         let result = repository.migrate().unwrap();
 
         assert_eq!(result.current_version, 1);
-        assert_eq!(result.applied, vec![2, 3, 4, 5, 6, 7]);
+        assert_eq!(result.applied, vec![2, 3, 4, 5, 6, 7, 8]);
         let connection = repository.open_existing().unwrap();
         assert_eq!(
             SqliteHarnessRepository::schema_version(&connection).unwrap(),
-            7
+            SUPPORTED_SCHEMA_VERSION
         );
         let story_columns = story_columns(&connection);
         assert!(story_columns.contains(&"verify_command".to_owned()));
@@ -4617,7 +4730,7 @@ mod tests {
 
         // Upgrade: migration 005 must infer kind from the command prefix.
         // (Migration 006 adds story_signal and rides along in the same upgrade.)
-        assert_eq!(repository.migrate().unwrap().applied, vec![5, 6, 7]);
+        assert_eq!(repository.migrate().unwrap().applied, vec![5, 6, 7, 8]);
         let connection = repository.open_existing().unwrap();
         let kind_of = |name: &str| -> String {
             connection
@@ -4711,6 +4824,90 @@ mod tests {
             fs::canonicalize(fs::read_to_string(pwd_output).unwrap().trim()).unwrap(),
             fs::canonicalize(repo_root).unwrap()
         );
+    }
+
+    #[test]
+    fn decision_update_edits_fields_and_survives_rebuild() {
+        let (_temp_dir, repository) = test_repository();
+        repository.init().unwrap();
+
+        repository
+            .add_decision(DecisionAddInput {
+                id: "0002-update".to_owned(),
+                title: "Original".to_owned(),
+                status: "accepted".to_owned(),
+                doc_path: None,
+                verify_command: Some("prose expectations, not runnable".to_owned()),
+                predicted_impact: None,
+                notes: None,
+            })
+            .unwrap();
+
+        // Nothing-to-update guard and missing-id guard.
+        assert!(matches!(
+            repository.update_decision(DecisionUpdateInput {
+                id: "0002-update".to_owned(),
+                title: None,
+                status: None,
+                doc_path: None,
+                verify_command: None,
+                predicted_impact: None,
+                notes: None,
+            }),
+            Err(HarnessInfraError::EmptyDecisionUpdate)
+        ));
+        assert!(matches!(
+            repository.update_decision(DecisionUpdateInput {
+                id: "no-such".to_owned(),
+                title: None,
+                status: None,
+                doc_path: None,
+                verify_command: Some(String::new()),
+                predicted_impact: None,
+                notes: None,
+            }),
+            Err(HarnessInfraError::DecisionNotFound(_))
+        ));
+
+        repository
+            .update_decision(DecisionUpdateInput {
+                id: "0002-update".to_owned(),
+                title: None,
+                status: Some("superseded".to_owned()),
+                doc_path: None,
+                verify_command: Some(String::new()),
+                predicted_impact: None,
+                notes: Some("expectations moved to notes".to_owned()),
+            })
+            .unwrap();
+
+        let read_row = |repository: &SqliteHarnessRepository| -> (String, String, String, String) {
+            let connection = repository.open_existing().unwrap();
+            connection
+                .query_row(
+                    "SELECT title, status, COALESCE(verify_command,'<null>'), COALESCE(notes,'')
+                     FROM decision WHERE id='0002-update';",
+                    [],
+                    |row| {
+                        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                    },
+                )
+                .unwrap()
+        };
+        let live = read_row(&repository);
+        assert_eq!(
+            live,
+            (
+                "Original".to_owned(),
+                "superseded".to_owned(),
+                String::new(),
+                "expectations moved to notes".to_owned()
+            )
+        );
+
+        // The decision.update event must replay identically on rebuild.
+        repository.rebuild(None).unwrap();
+        assert_eq!(read_row(&repository), live);
     }
 
     #[test]
@@ -5179,6 +5376,63 @@ mod tests {
             .iter()
             .all(|proposal| proposal.committed_backlog_id.is_some()));
         assert!(repository.query_backlog(BacklogFilter::Open).unwrap().len() >= 1);
+    }
+
+    #[test]
+    fn propose_ignores_duplicate_signals_on_one_story() {
+        let (_temp_dir, repository) = test_repository();
+        repository.init().unwrap();
+
+        for id in ["US-1", "US-2"] {
+            repository
+                .add_story(StoryAddInput {
+                    id: id.to_owned(),
+                    title: format!("story {id}"),
+                    risk_lane: RiskLane::Normal,
+                    contract_doc: None,
+                    verify_command: None,
+                    notes: None,
+                })
+                .unwrap();
+        }
+
+        for _ in 0..2 {
+            repository
+                .add_story_signal(StorySignalAddInput {
+                    story_id: Some("US-1".to_owned()),
+                    trace_id: None,
+                    signal_type: "deviation".to_owned(),
+                    summary: "spec silent on empty name".to_owned(),
+                    component: None,
+                    notes: None,
+                })
+                .unwrap();
+        }
+
+        // Same story twice is noise, not recurrence.
+        assert!(!repository
+            .propose(false)
+            .unwrap()
+            .iter()
+            .any(|proposal| proposal.title.starts_with("Recurring deviation")));
+
+        repository
+            .add_story_signal(StorySignalAddInput {
+                story_id: Some("US-2".to_owned()),
+                trace_id: None,
+                signal_type: "deviation".to_owned(),
+                summary: "spec silent on empty name".to_owned(),
+                component: None,
+                notes: None,
+            })
+            .unwrap();
+
+        // A second distinct story crosses the threshold.
+        assert!(repository
+            .propose(false)
+            .unwrap()
+            .iter()
+            .any(|proposal| proposal.title.starts_with("Recurring deviation")));
     }
 
     #[test]

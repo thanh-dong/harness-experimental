@@ -144,7 +144,7 @@ docs confusing
 ```bash
 scripts/bin/harness-cli trace \
   --summary "Completed high-risk auth role migration with audit proof" \
-  --intake 51 \
+  --intake 01JCEXAMPLEULID0000000000 \
   --story US-014 \
   --agent codex \
   --outcome completed \
@@ -164,7 +164,7 @@ scripts/bin/harness-cli trace \
 ```bash
 scripts/bin/harness-cli trace \
   --summary "Added Phase 2 trace specification and Harness reference" \
-  --intake 36 \
+  --intake 01JCEXAMPLEULID0000000001 \
   --story US-004 \
   --agent codex \
   --outcome completed \

@@ -62,6 +62,17 @@ pub struct DecisionAddInput {
 }
 
 #[derive(Debug)]
+pub struct DecisionUpdateInput {
+    pub id: String,
+    pub title: Option<String>,
+    pub status: Option<String>,
+    pub doc_path: Option<String>,
+    pub verify_command: Option<String>,
+    pub predicted_impact: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug)]
 pub struct BacklogAddInput {
     pub title: String,
     pub discovered_while: Option<String>,
@@ -192,6 +203,10 @@ impl HarnessService {
 
     pub fn add_decision(&self, input: DecisionAddInput) -> crate::infrastructure::Result<()> {
         self.repository.add_decision(input)
+    }
+
+    pub fn update_decision(&self, input: DecisionUpdateInput) -> crate::infrastructure::Result<()> {
+        self.repository.update_decision(input)
     }
 
     pub fn verify_decision(&self, id: &str) -> crate::infrastructure::Result<DecisionVerifyResult> {

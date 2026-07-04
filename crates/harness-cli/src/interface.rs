@@ -6,7 +6,8 @@ use clap::{Args, Parser, Subcommand};
 use thiserror::Error;
 
 use crate::application::{
-    BacklogAddInput, BacklogCloseInput, BrownfieldImportResult, DecisionAddInput, HarnessContext,
+    BacklogAddInput, BacklogCloseInput, BrownfieldImportResult, DecisionAddInput,
+    DecisionUpdateInput, HarnessContext,
     HarnessService, InitResult, IntakeInput, InterventionAddInput, InterventionFilter,
     MigrateResult, QueryTable, StoryAddInput, StorySignalAddInput, StorySignalFilter,
     StoryUpdateInput, ToolRegisterInput, TraceInput,
@@ -60,7 +61,7 @@ enum Command {
     Audit,
     /// Generate improvement proposals from observed patterns.
     Propose(ProposeArgs),
-    /// Rebuild a fresh cache from the .harness/events/ log (shadow mode).
+    /// Verify replay determinism by rebuilding a shadow cache from .harness/events/ (live cache untouched; to repair it, delete harness.db and run any query).
     Rebuild(RebuildArgs),
     /// Migrate an existing database to the event log (proves equality first).
     MigrateToEvents,
@@ -211,7 +212,26 @@ struct DecisionArgs {
 #[derive(Subcommand, Debug)]
 enum DecisionAction {
     Add(DecisionAddArgs),
+    Update(DecisionUpdateArgs),
     Verify { id: String },
+}
+
+#[derive(Args, Debug)]
+struct DecisionUpdateArgs {
+    #[arg(long)]
+    id: String,
+    #[arg(long)]
+    title: Option<String>,
+    #[arg(long)]
+    status: Option<String>,
+    #[arg(long)]
+    doc: Option<String>,
+    #[arg(long)]
+    verify: Option<String>,
+    #[arg(long)]
+    predicted: Option<String>,
+    #[arg(long)]
+    notes: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -587,6 +607,18 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                     notes: args.notes,
                 })?;
                 println!("Decision {} added.", args.id);
+            }
+            DecisionAction::Update(args) => {
+                service.update_decision(DecisionUpdateInput {
+                    id: args.id.clone(),
+                    title: args.title,
+                    status: args.status,
+                    doc_path: args.doc,
+                    verify_command: args.verify,
+                    predicted_impact: args.predicted,
+                    notes: args.notes,
+                })?;
+                println!("Decision {} updated.", args.id);
             }
             DecisionAction::Verify { id } => {
                 let result = service.verify_decision(&id)?;

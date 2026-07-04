@@ -21,7 +21,7 @@
 <p>
 Story: <code>docs/stories/US-XXX-.../story.md</code> ·
 Decision: <code>docs/decisions/NNNN-...md</code> (if any) ·
-Intake: <code>#N</code> (lane, flags)
+Intake: <code>&lt;intake-id&gt;</code> (ULID; a unique prefix works everywhere an id is accepted) (lane, flags)
 </p>
 
 <!--
@@ -37,7 +37,9 @@ Intake: <code>#N</code> (lane, flags)
 rejected alternatives with the reason each was rejected.</p>
 
 <h2><span class="signal">deviation</span> Deviations</h2>
-<p>Where you intentionally departed from the plan, and why.</p>
+<p>Where you intentionally departed from the plan, and why. On an unplanned
+unknown: pick the conservative option, log it here, keep going; pause only on
+hard gates or high-risk stop conditions.</p>
 
 <h2><span class="signal">tradeoff</span> Tradeoffs &amp; accepted limits</h2>
 <p>Alternatives considered, what you picked, and the limits you accepted.</p>

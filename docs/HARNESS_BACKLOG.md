@@ -6,5 +6,10 @@ Add items with `harness-cli backlog add`, close with `harness-cli backlog close`
 
 | Id | Title | Risk | Status | Predicted impact | Actual outcome |
 | --- | --- | --- | --- | --- | --- |
+| 01KWP9D1VVT39ZTDPVQ40NGXTQ | Shipped harness-cli binary is stale (0.1.10 vs source 0.1.13) | normal | implemented | intake/trace/signal work on fresh installs; docs match binary | Local binary refreshed to current build; root cause addressed by migrate version guard so stale binaries fail loud instead of bricking. Eval check 2-3 pass. |
+| 01KWP9D1X2TV0HH2SJYSJRZFMQ | migrate lacks binary/schema version guard | normal | implemented | migrate refuses schema newer than binary | SUPPORTED_SCHEMA_VERSION guard added to apply_pending_migrations; UnsupportedSchemaVersion error. Eval check 7 pass; cargo test green. |
+| 01KWP9D1Y36NVX5DGM233X4YCN | intervention --type review rejected by schema | tiny | implemented | documented done-gate command succeeds | Migration 008 widens intervention CHECK to include review. Eval check 4 pass. |
+| 01KWP9D1Z3K7MFQQSGPEMJ24C7 | init does not create .harness/events despite SETUP.md | tiny | implemented | init creates events dir | init now creates .harness/events with .gitkeep; SETUP.md git add works verbatim. Eval check 1 pass. |
+| 01KWP9D1ZWCR0VFG79BQ8AAAVD | propose counts duplicate signals on one story as multi-story recurrence | tiny | implemented | recurrence requires >=2 distinct stories | repeated_story_signals dedupes by distinct story id (unattributed signals still count per occurrence); regression test added. Eval check 6 pass. |
 | 1 | schema_version test assertions are hardcoded to latest version | tiny | proposed | New migrations stop breaking unrelated tests |  |
 | 2 | Upstream okra-store.sh macOS flock fallback to lagz0ne/okra | tiny | proposed | okra store helpers work identically on macOS and Linux |  |

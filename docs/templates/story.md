@@ -34,6 +34,14 @@ Describe the behavior this story must make true.
 - Domain rules:
 - UI surfaces:
 
+## References
+
+Source code that already implements the wanted behavior or semantics — the best
+spec is a pointer. List paths (in-repo or vendored, any language) and what to
+match in each.
+
+- `path/to/reference` — what to match.
+
 ## Validation
 
 When updating durable proof status, use numeric booleans:
