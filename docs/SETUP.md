@@ -97,7 +97,13 @@ scripts/bin/harness-cli tool check            # scan presence -> present/missing
 scripts/bin/harness-cli query tools --summary # the equipped tool menu (built-ins + registered)
 scripts/bin/harness-cli query matrix          # the proof board is queryable
 scripts/calibrate-harness.sh                  # audit + score-trace behave (black-box goldens)
+bash scripts/verify-harness.sh .              # 8-check install self-verify (expect 8/8)
 ```
+
+`verify-harness.sh` is the one-command answer to "is the harness well set up":
+binary, complete schema set (no duplicate version prefixes), git-tracked event
+log, deterministic rebuild, no pending migrations, and a working write path.
+Write checks run in a throwaway clone, so it never dirties the team event log.
 
 `present` for an `mcp`/`skill` means equipped on disk, not live this session —
 confirm the tool actually runs before trusting its output. A registered tool that

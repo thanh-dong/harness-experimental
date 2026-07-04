@@ -35,7 +35,9 @@ Rules of engagement — every agent, every session:
   print the same dump hash; a mismatch means a corrupt log line.
 - **First time on a repo?** Fresh install → `docs/SETUP.md`. Upgrading a
   pre-event-log repo → `harness-cli migrate` then `harness-cli migrate-to-events`
-  (`docs/EVENT_LOG.md`).
+  (`docs/EVENT_LOG.md`). Either way, finish with
+  `bash scripts/verify-harness.sh .` — 8/8 means the install works; anything
+  less, fix before writing state.
 
 <!-- HARNESS:BEGIN -->
 ## Harness
