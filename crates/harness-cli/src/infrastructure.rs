@@ -101,6 +101,7 @@ pub struct ToolCheckResult {
 pub trait HarnessRepository {
     fn init(&self) -> Result<InitResult>;
     fn migrate(&self) -> Result<MigrateResult>;
+    fn info(&self) -> Result<InfoReport>;
     fn import_brownfield(&self) -> Result<BrownfieldImportResult>;
     fn record_intake(&self, input: IntakeInput) -> Result<String>;
     fn add_story(&self, input: StoryAddInput) -> Result<()>;
@@ -138,6 +139,37 @@ pub trait HarnessRepository {
     fn audit(&self) -> Result<AuditResult>;
     fn propose(&self, commit: bool) -> Result<Vec<ImprovementProposal>>;
     fn query_sql(&self, sql: &str) -> Result<QueryTable>;
+}
+
+/// Read-only snapshot of version and state for `harness-cli info` (US-036).
+/// Built without mutating the cache or replaying the log, so it can report a
+/// cache that is behind the log rather than silently healing it.
+#[derive(Debug, PartialEq, Eq)]
+pub struct InfoReport {
+    /// Version of this CLI binary (Cargo package version).
+    pub cli_version: String,
+    /// Highest schema version this binary can read and write.
+    pub supported_schema_version: i64,
+    /// Highest migration version present on disk (what `migrate` targets).
+    pub available_schema_version: i64,
+    /// Event-log line format version this binary writes.
+    pub event_format_version: i64,
+    /// Whether a harness database exists at `db_path`.
+    pub initialized: bool,
+    /// Absolute path where the database is (or would be).
+    pub db_path: String,
+    /// Highest applied migration recorded in the database, or 0 when absent.
+    pub applied_schema_version: i64,
+    /// Every applied migration version, ascending (empty when uninitialized).
+    pub applied_migrations: Vec<i64>,
+    /// Whether the cache is marked event-backed (US-028b cutover).
+    pub event_backed: bool,
+    /// Number of `.jsonl` writer files in `.harness/events/`.
+    pub event_files: usize,
+    /// Applied schema is behind the migrations on disk: run `migrate`.
+    pub schema_behind_cli: bool,
+    /// The cache has unconsumed events in the log: a read command replays them.
+    pub cache_behind_log: bool,
 }
 
 #[derive(Debug)]
@@ -502,6 +534,69 @@ impl SqliteHarnessRepository {
         Ok(version)
     }
 
+    /// Every applied migration version, ascending. Empty when the
+    /// `schema_version` table is absent (uninitialized/legacy cache).
+    fn applied_migrations(connection: &Connection) -> Result<Vec<i64>> {
+        let table_exists: Option<String> = connection
+            .query_row(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version';",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if table_exists.is_none() {
+            return Ok(Vec::new());
+        }
+        let mut statement =
+            connection.prepare("SELECT version FROM schema_version ORDER BY version;")?;
+        let rows = statement.query_map([], |row| row.get::<_, i64>(0))?;
+        collect_rows(rows)
+    }
+
+    /// Whether the log holds events the cache has not consumed — the same
+    /// comparison `open_fresh` uses to decide on replay, but read-only: it
+    /// only reports pending work and never mutates the cache or watermarks.
+    fn cache_behind_log(&self, connection: &Connection) -> Result<bool> {
+        let mut seen_files: Vec<String> = Vec::new();
+        for path in self.list_event_files()? {
+            let name = path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default()
+                .to_owned();
+            seen_files.push(name.clone());
+            let metadata = fs::metadata(&path)?;
+            let size = metadata.len() as i64;
+            let mtime_ns = file_mtime_ns(&path)?;
+            let watermark: Option<(i64, i64)> = connection
+                .query_row(
+                    "SELECT file_size, file_mtime_ns FROM event_watermark WHERE file=?1;",
+                    params![name],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            match watermark {
+                Some((wm_size, wm_mtime)) => {
+                    if wm_size != size || wm_mtime != mtime_ns {
+                        return Ok(true);
+                    }
+                }
+                // A log file with no watermark row is entirely unconsumed.
+                None => return Ok(true),
+            }
+        }
+        // A watermarked file that no longer exists means the cache holds
+        // events the log has dropped: a read command rebuilds from the log.
+        let mut statement = connection.prepare("SELECT file FROM event_watermark;")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        for file in collect_rows(rows)? {
+            if !seen_files.contains(&file) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     fn apply_schema_v1(&self, connection: &Connection) -> Result<()> {
         let schema_path = self.schema_dir.join("001-init.sql");
         if !schema_path.exists() {
@@ -854,6 +949,51 @@ impl HarnessRepository for SqliteHarnessRepository {
             current_version,
             applied,
         })
+    }
+
+    fn info(&self) -> Result<InfoReport> {
+        let available_schema_version = self
+            .migration_files()?
+            .iter()
+            .map(|(version, _)| *version)
+            .max()
+            .unwrap_or(0);
+        let event_files = self.list_event_files()?.len();
+
+        let mut report = InfoReport {
+            cli_version: env!("CARGO_PKG_VERSION").to_owned(),
+            supported_schema_version: SUPPORTED_SCHEMA_VERSION,
+            available_schema_version,
+            event_format_version: crate::events::EVENT_SCHEMA_VERSION,
+            initialized: self.db_path.exists(),
+            db_path: self.db_path.display().to_string(),
+            applied_schema_version: 0,
+            applied_migrations: Vec::new(),
+            event_backed: false,
+            event_files,
+            schema_behind_cli: false,
+            // A fresh clone with events but no cache is behind the log until
+            // the next command rebuilds the cache.
+            cache_behind_log: false,
+        };
+
+        if !report.initialized {
+            report.cache_behind_log = event_files > 0;
+            return Ok(report);
+        }
+
+        // Read-only open: never open_fresh here, which would replay the log
+        // and destroy the cache-behind-log signal this command exists to
+        // report.
+        let connection = self.open_existing()?;
+        report.applied_migrations = Self::applied_migrations(&connection)?;
+        report.applied_schema_version =
+            report.applied_migrations.iter().copied().max().unwrap_or(0);
+        report.event_backed =
+            Self::cache_meta_get(&connection, "event_backed")?.as_deref() == Some("true");
+        report.schema_behind_cli = report.applied_schema_version < available_schema_version;
+        report.cache_behind_log = report.event_backed && self.cache_behind_log(&connection)?;
+        Ok(report)
     }
 
     fn import_brownfield(&self) -> Result<BrownfieldImportResult> {
@@ -5902,5 +6042,126 @@ implemented
         assert_eq!(specific.achieved, TraceQualityTier::Minimal);
         assert_eq!(specific.required, None);
         assert!(specific.meets_requirement);
+    }
+
+    #[test]
+    fn info_reports_absence_on_uninitialized_repo() {
+        // Acceptance (US-036): reports absence rather than erroring, exit 0.
+        let (_temp_dir, repository) = test_repository();
+        let report = repository.info().unwrap();
+
+        assert!(!report.initialized);
+        assert!(!report.cli_version.is_empty());
+        assert_eq!(report.supported_schema_version, SUPPORTED_SCHEMA_VERSION);
+        assert_eq!(report.available_schema_version, SUPPORTED_SCHEMA_VERSION);
+        assert_eq!(
+            report.event_format_version,
+            crate::events::EVENT_SCHEMA_VERSION
+        );
+        assert_eq!(report.applied_schema_version, 0);
+        assert!(report.applied_migrations.is_empty());
+        assert!(!report.event_backed);
+        assert_eq!(report.event_files, 0);
+        assert!(!report.schema_behind_cli);
+        assert!(!report.cache_behind_log);
+    }
+
+    #[test]
+    fn info_reports_initialized_state() {
+        let (_temp_dir, repository) = test_repository();
+        repository.init().unwrap();
+        let report = repository.info().unwrap();
+
+        assert!(report.initialized);
+        assert_eq!(report.applied_schema_version, SUPPORTED_SCHEMA_VERSION);
+        assert_eq!(
+            report.applied_migrations,
+            (1..=SUPPORTED_SCHEMA_VERSION).collect::<Vec<_>>()
+        );
+        assert!(report.event_backed);
+        assert!(!report.schema_behind_cli);
+        assert!(!report.cache_behind_log);
+    }
+
+    #[test]
+    fn info_flags_schema_behind_cli() {
+        // Init against a truncated schema dir (migrations 001..007 only), then
+        // read info through a repository that sees the full schema on disk:
+        // the applied schema is behind the CLI and needs `migrate`.
+        let temp_dir = tempfile::tempdir().unwrap();
+        let partial_schema = temp_dir.path().join("partial-schema");
+        fs::create_dir_all(&partial_schema).unwrap();
+        for (version, path) in SqliteHarnessRepository::new(
+            temp_dir.path().to_path_buf(),
+            temp_dir.path().join("harness.db"),
+            real_repo_root().join("scripts/schema"),
+        )
+        .migration_files()
+        .unwrap()
+        {
+            if version <= SUPPORTED_SCHEMA_VERSION - 1 {
+                let name = path.file_name().unwrap();
+                fs::copy(&path, partial_schema.join(name)).unwrap();
+            }
+        }
+
+        let db_path = temp_dir.path().join("harness.db");
+        let partial = SqliteHarnessRepository::new(
+            temp_dir.path().to_path_buf(),
+            db_path.clone(),
+            partial_schema,
+        );
+        partial.init().unwrap();
+
+        let full = SqliteHarnessRepository::new(
+            temp_dir.path().to_path_buf(),
+            db_path,
+            real_repo_root().join("scripts/schema"),
+        );
+        let report = full.info().unwrap();
+
+        assert!(report.initialized);
+        assert_eq!(report.applied_schema_version, SUPPORTED_SCHEMA_VERSION - 1);
+        assert_eq!(report.available_schema_version, SUPPORTED_SCHEMA_VERSION);
+        assert!(report.schema_behind_cli);
+        assert!(!report.cache_behind_log);
+    }
+
+    #[test]
+    fn info_flags_cache_behind_log() {
+        // Simulate the crash window: an event appended to the log whose
+        // watermark the cache never advanced. A read command would replay it;
+        // info reports it without mutating anything.
+        let (temp_dir, service) = events_test_service();
+        service
+            .record_intake(IntakeInput {
+                input_type: InputType::from_str("maintenance").unwrap(),
+                summary: "seed".to_owned(),
+                risk_lane: RiskLane::from_str("tiny").unwrap(),
+                risk_flags: CsvList::from_optional(None),
+                affected_docs: CsvList::from_optional(None),
+                story_id: None,
+                notes: None,
+            })
+            .unwrap();
+
+        let events_dir = temp_dir.path().join(".harness/events");
+        let writer_file =
+            events_dir.join(format!("{}.jsonl", own_writer_name(&events_dir)));
+        let mut existing = fs::read_to_string(&writer_file).unwrap();
+        existing.push_str("{\"event_id\":\"z\",\"writer\":\"x\",\"recorded_at\":\"t\",\"op\":\"intake.record\",\"schema\":1,\"payload\":{}}\n");
+        fs::write(&writer_file, existing).unwrap();
+
+        let repository = SqliteHarnessRepository::new(
+            temp_dir.path().to_path_buf(),
+            temp_dir.path().join("harness.db"),
+            real_repo_root().join("scripts/schema"),
+        );
+        let report = repository.info().unwrap();
+
+        assert!(report.initialized);
+        assert!(report.event_backed);
+        assert!(report.cache_behind_log);
+        assert!(!report.schema_behind_cli);
     }
 }

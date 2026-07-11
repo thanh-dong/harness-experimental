@@ -1,0 +1,50 @@
+name: Headless Matrix
+
+# US-033 — prove the operator command set runs with no prompts and no TTY.
+# Shuttle (and any unattended consumer) provisions and drives the harness from
+# inside a server or remote runner where stdin is closed and no terminal is
+# attached; this job runs scripts/test-headless.sh in exactly that shape.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "scripts/schema/**"
+      - "scripts/test-headless.sh"
+      - ".github/workflows/headless-matrix.yml"
+  pull_request:
+    paths:
+      - "crates/**"
+      - "scripts/schema/**"
+      - "scripts/test-headless.sh"
+      - ".github/workflows/headless-matrix.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  headless:
+    name: Headless command set
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: headless-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Build harness-cli
+        run: cargo build --release -p harness-cli
+
+      - name: Run headless command set
+        run: HARNESS_BIN="$PWD/target/release/harness-cli" bash scripts/test-headless.sh

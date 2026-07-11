@@ -49,6 +49,8 @@ enum Command {
     Init,
     /// Apply schema migrations.
     Migrate,
+    /// Report CLI version, schema/event-log versions, and DB/log state.
+    Info,
     /// Seed or refresh the database from existing markdown state.
     Import(ImportArgs),
     /// Record a feature intake classification.
@@ -630,6 +632,14 @@ pub fn run(cli: Cli, output: OutputMode) -> Result<(), InterfaceError> {
     match cli.command {
         Command::Init => print_init_result(service.init()?),
         Command::Migrate => print_migrate_result(service.migrate()?),
+        Command::Info => {
+            let report = service.info()?;
+            if output.is_json() {
+                emit_data("info", info_json(&report));
+            } else {
+                print_info(&report);
+            }
+        }
         Command::Import(args) => match args.source {
             ImportSource::Brownfield => {
                 print_brownfield_import_result(service.import_brownfield()?)
@@ -1322,6 +1332,73 @@ fn print_migrate_result(result: MigrateResult) {
             println!("Applying migration {version}...");
         }
         println!("Applied {} migration(s).", result.applied.len());
+    }
+}
+
+fn info_json(report: &crate::infrastructure::InfoReport) -> serde_json::Value {
+    json!({
+        "cliVersion": report.cli_version,
+        "supportedSchemaVersion": report.supported_schema_version,
+        "availableSchemaVersion": report.available_schema_version,
+        "eventFormatVersion": report.event_format_version,
+        "initialized": report.initialized,
+        "dbPath": report.db_path,
+        "appliedSchemaVersion": report.applied_schema_version,
+        "appliedMigrations": report.applied_migrations,
+        "eventBacked": report.event_backed,
+        "eventFiles": report.event_files,
+        "schemaBehindCli": report.schema_behind_cli,
+        "cacheBehindLog": report.cache_behind_log,
+    })
+}
+
+fn print_info(report: &crate::infrastructure::InfoReport) {
+    println!("harness-cli {}", report.cli_version);
+    println!(
+        "Schema: supports v{}, migrations on disk go to v{}",
+        report.supported_schema_version, report.available_schema_version
+    );
+    println!("Event-log format: v{}", report.event_format_version);
+    if !report.initialized {
+        println!("Database: absent at {} (run: harness-cli init)", report.db_path);
+        if report.event_files > 0 {
+            println!(
+                "Event log: {} file(s) present, cache not yet built (any command rebuilds it)",
+                report.event_files
+            );
+        }
+        return;
+    }
+    println!("Database: {}", report.db_path);
+    let applied = if report.applied_migrations.is_empty() {
+        "none".to_owned()
+    } else {
+        report
+            .applied_migrations
+            .iter()
+            .map(|version| version.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    println!(
+        "Applied schema: v{} ({} migration(s): {})",
+        report.applied_schema_version,
+        report.applied_migrations.len(),
+        applied
+    );
+    println!(
+        "Event log: {} file(s), cache {}event-backed",
+        report.event_files,
+        if report.event_backed { "" } else { "not " }
+    );
+    if report.schema_behind_cli {
+        println!("Action: schema behind CLI — run: harness-cli migrate");
+    }
+    if report.cache_behind_log {
+        println!("Action: cache behind log — run any command to replay the log");
+    }
+    if !report.schema_behind_cli && !report.cache_behind_log {
+        println!("State: up to date");
     }
 }
 

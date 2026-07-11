@@ -177,6 +177,10 @@ impl HarnessService {
         self.repository.migrate()
     }
 
+    pub fn info(&self) -> crate::infrastructure::Result<crate::infrastructure::InfoReport> {
+        self.repository.info()
+    }
+
     pub fn import_brownfield(&self) -> crate::infrastructure::Result<BrownfieldImportResult> {
         self.repository.import_brownfield()
     }

@@ -109,6 +109,30 @@ Write checks run in a throwaway clone, so it never dirties the team event log.
 confirm the tool actually runs before trusting its output. A registered tool that
 scans `missing` is a failed gate (set `Weak proof`), not a silent skip.
 
+## Headless / non-interactive operation
+
+Every command an unattended operator calls — `init`, `migrate`, `info`,
+`tool register|check`, and every JSON-mode write and query — runs with **no
+prompts and no TTY assumptions**. It is safe to invoke with stdin closed and no
+controlling terminal (inside a server, a remote runner, or CI). No command
+blocks waiting for confirmation: where a destructive action needs an override
+it takes an explicit flag (`tool register --force`) rather than prompting, and a
+missing prerequisite is a non-zero exit with a message, never a question.
+
+`info` (optionally `--json`) reports CLI version, applied schema vs. the
+migrations on disk, event-log format version, and whether the cache is behind
+the log or the schema is behind the CLI — so a provisioner can decide
+verify/migrate/refuse without parsing files. It works on an uninitialized repo,
+reporting absence and exiting `0`.
+
+The guarantee is enforced in CI: `scripts/test-headless.sh` runs the whole
+command set with `</dev/null` and (where available) `setsid`, asserting each
+exits `0`. Run it locally the same way:
+
+```bash
+bash scripts/test-headless.sh            # builds the CLI, exercises it headless
+```
+
 ## 4. Read before changing code
 
 `AGENTS.md` · `docs/HARNESS.md` · `docs/FEATURE_INTAKE.md` · `docs/GOAL_LOOP.md`
