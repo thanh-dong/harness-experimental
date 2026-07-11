@@ -11,3 +11,10 @@ Update proof with `harness-cli story update`, never by editing this file.
 | US-028a | docs/stories/epics/E05-event-log-durable-layer/US-028a-shadow-mode/US-028a-shadow-mode.md | yes | yes | no | no | implemented | cargo test -p harness-cli: 40 passed (12 events/rebuild tests); real-log rebuild deterministic (dump 992b6d499764942f twice); calibration 16 checks; verify-all 2 pass 0 fail; CI runs cargo test --workspace (harness-cli-release.yml) |
 | US-028b | docs/stories/epics/E05-event-log-durable-layer/US-028b-cutover/overview.md | yes | yes | yes | no | implemented | cargo test 55 passed (17 cutover tests incl two-writer git-merge e2e); calibration 19 checks; bench p95 6.84ms@100k vs 100ms wall; dogfood migrate-to-events 29 rows proof-equal, matrix identical pre/post, fresh-clone rebuild identical |
 | US-029 | decision update CLI verb | yes | yes | no | no | implemented | decision_update_edits_fields_and_survives_rebuild covers field edits, guards, and rebuild replay parity; full suite 57 pass |
+| US-030 | harness-dist-<version>.tar.gz release asset with all operating files, checksummed; offline install parity | no | no | no | no | planned |  |
+| US-031 | manifest.json per release: versions, asset names, sha256s; CI-verified | no | no | no | no | planned |  |
+| US-032 | JSON output flag on intake/story/decision/trace/backlog/query/tool-check with stable shapes and exit codes | no | no | no | no | planned |  |
+| US-033 | No prompts/TTY assumptions on operator-called commands; CI headless matrix | no | no | no | no | planned |  |
+| US-034 | Deterministic install/merge-upgrade entry point with exit codes + JSON file summary; merge promise testable | no | no | no | no | planned |  |
+| US-035 | Gate/context template set referencing harness_* tool names; single owner for gate semantics | no | no | no | no | planned |  |
+| US-036 | harness-cli info command with JSON output: CLI/schema/migrations/log-format versions | no | no | no | no | planned |  |
