@@ -81,6 +81,50 @@ from existing Harness v0 markdown in `docs/TEST_MATRIX.md`,
 Harness repos on the Rust CLI path without losing their populated operating
 docs.
 
+### JSON output mode
+
+Machine consumers (e.g. the Shuttle MCP wrapper) can request a single
+machine-readable JSON object per invocation instead of human-formatted text.
+Enable it with the global `--json` flag or by setting `HARNESS_OUTPUT=json`;
+either turns JSON on. Human output is unchanged by default, so existing flows
+and docs keep working.
+
+```bash
+scripts/bin/harness-cli intake --type change_request --summary "..." --lane normal --json
+HARNESS_OUTPUT=json scripts/bin/harness-cli query matrix
+```
+
+Supported on `intake`, `story add|update|signal`, `decision add`, `trace`,
+`backlog add`, every `query *` view, and `tool check`.
+
+Success emits `{"ok":true,"command":"<name>", ...}`. Write commands add the
+affected `"id"`; `query *` views wrap their rows under `"data"`:
+
+```json
+{"ok":true,"command":"backlog.add","id":"01K..."}
+{"ok":true,"command":"query.matrix","data":[{"id":"US-1","status":"planned","unit":true}]}
+```
+
+Failure emits `{"ok":false,"error":{"code":"<validation|io>","message":"..."}}`.
+
+Two pre-existing outputs keep their established bare-array shape for backward
+compatibility (US-019): `query tools --json` and `tool check --json` still emit a
+top-level JSON array, not the envelope. The global `--json` flag and
+`HARNESS_OUTPUT=json` both select that same array.
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Success. |
+| `2` | Validation / bad input / not-found — user-correctable (unknown lane, missing story, empty SQL, tool already exists, unsupported schema version, etc.). |
+| `3` | IO or database failure (SQLite error, filesystem IO, corrupt event log, migration verification failure). |
+
+The same mapping applies in human and JSON mode; in JSON mode the `error.code`
+field is `"validation"` for exit `2` and `"io"` for exit `3`. Argument-parsing
+errors from `clap` (unknown flag, missing required argument) exit with clap's own
+code and print to stderr.
+
 ## Installer
 
 The upstream installer applies the Harness v0 operating files and folder

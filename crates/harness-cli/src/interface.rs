@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use clap::{Args, Parser, Subcommand};
+use serde_json::json;
 use thiserror::Error;
 
 use crate::application::{
@@ -29,6 +30,17 @@ use crate::infrastructure::ToolCheckResult;
 pub struct Cli {
     #[command(subcommand)]
     command: Command,
+    /// Emit a single machine-readable JSON object instead of human text.
+    /// Equivalent to setting HARNESS_OUTPUT=json.
+    #[arg(long, global = true)]
+    json: bool,
+}
+
+impl Cli {
+    /// Whether `--json` was passed anywhere on the command line.
+    pub fn json_output(&self) -> bool {
+        self.json
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -81,7 +93,7 @@ struct RebuildArgs {
 struct IntakeArgs {
     #[arg(long = "type")]
     input_type: String,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     summary: String,
     #[arg(long, value_name = "tiny|normal|high-risk")]
     lane: String,
@@ -91,7 +103,7 @@ struct IntakeArgs {
     docs: Option<String>,
     #[arg(long)]
     story: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     notes: Option<String>,
 }
 
@@ -155,7 +167,7 @@ struct StorySignalAddArgs {
         value_name = "design_decision|deviation|tradeoff|open_question"
     )]
     signal_type: String,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     summary: String,
     #[arg(long)]
     story: Option<String>,
@@ -163,7 +175,7 @@ struct StorySignalAddArgs {
     trace: Option<String>,
     #[arg(long)]
     component: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     notes: Option<String>,
 }
 
@@ -175,11 +187,11 @@ struct StoryAddArgs {
     title: String,
     #[arg(long, value_name = "tiny|normal|high-risk")]
     lane: String,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     contract: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     verify: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     notes: Option<String>,
 }
 
@@ -189,7 +201,7 @@ struct StoryUpdateArgs {
     id: String,
     #[arg(long)]
     status: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     evidence: Option<String>,
     #[arg(long, value_name = "0|1")]
     unit: Option<String>,
@@ -199,7 +211,7 @@ struct StoryUpdateArgs {
     e2e: Option<String>,
     #[arg(long, value_name = "0|1")]
     platform: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     verify: Option<String>,
 }
 
@@ -224,13 +236,13 @@ struct DecisionUpdateArgs {
     title: Option<String>,
     #[arg(long)]
     status: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     doc: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     verify: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     predicted: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     notes: Option<String>,
 }
 
@@ -242,13 +254,13 @@ struct DecisionAddArgs {
     title: String,
     #[arg(long, default_value = "accepted")]
     status: String,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     doc: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     verify: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     predicted: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     notes: Option<String>,
 }
 
@@ -267,19 +279,19 @@ enum BacklogAction {
 
 #[derive(Args, Debug)]
 struct BacklogAddArgs {
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     title: String,
-    #[arg(long = "while")]
+    #[arg(long = "while", allow_hyphen_values = true)]
     discovered_while: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pain: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     suggestion: Option<String>,
     #[arg(long, value_name = "tiny|normal|high-risk")]
     risk: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     predicted: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     notes: Option<String>,
 }
 
@@ -289,7 +301,7 @@ struct BacklogCloseArgs {
     id: String,
     #[arg(long, default_value = "implemented")]
     status: String,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     outcome: Option<String>,
 }
 
@@ -316,7 +328,7 @@ struct ToolRegisterArgs {
     name: String,
     #[arg(long)]
     command: String,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     description: String,
     #[arg(long)]
     responsibility: String,
@@ -340,8 +352,6 @@ struct ToolCheckArgs {
     /// Check one tool by name; omit to check every registered tool.
     #[arg(long)]
     name: Option<String>,
-    #[arg(long)]
-    json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -363,17 +373,17 @@ struct InterventionAddArgs {
     story: Option<String>,
     #[arg(long = "type")]
     intervention_type: String,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     description: String,
     #[arg(long)]
     source: String,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     impact: Option<String>,
 }
 
 #[derive(Args, Debug)]
 struct TraceArgs {
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     summary: String,
     #[arg(long)]
     intake: Option<String>,
@@ -381,25 +391,25 @@ struct TraceArgs {
     story: Option<String>,
     #[arg(long)]
     agent: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     outcome: Option<String>,
     #[arg(long)]
     duration: Option<String>,
     #[arg(long)]
     tokens: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     friction: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     actions: Option<String>,
-    #[arg(long = "read")]
+    #[arg(long = "read", allow_hyphen_values = true)]
     files_read: Option<String>,
-    #[arg(long = "changed")]
+    #[arg(long = "changed", allow_hyphen_values = true)]
     files_changed: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     decisions: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     errors: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     notes: Option<String>,
 }
 
@@ -468,8 +478,6 @@ enum QueryView {
 #[derive(Args, Debug)]
 struct ToolsQueryArgs {
     #[arg(long)]
-    json: bool,
-    #[arg(long)]
     summary: bool,
     #[arg(long)]
     responsibility: Option<String>,
@@ -513,7 +521,110 @@ pub enum InterfaceError {
     EmptySql,
 }
 
-pub fn run(cli: Cli) -> Result<(), InterfaceError> {
+/// Whether the CLI renders human text or a single JSON object per invocation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutputMode {
+    Human,
+    Json,
+}
+
+impl OutputMode {
+    /// Resolve the output mode from the `--json` flag and the HARNESS_OUTPUT
+    /// environment variable. Either turning it on selects JSON.
+    pub fn resolve(json_flag: bool) -> Self {
+        let env_json = env::var("HARNESS_OUTPUT")
+            .map(|value| value.trim().eq_ignore_ascii_case("json"))
+            .unwrap_or(false);
+        if json_flag || env_json {
+            OutputMode::Json
+        } else {
+            OutputMode::Human
+        }
+    }
+
+    fn is_json(self) -> bool {
+        matches!(self, OutputMode::Json)
+    }
+}
+
+impl InterfaceError {
+    /// Process exit code: 0 success (never this path), 2 validation / bad input
+    /// / not-found (user-correctable), 3 IO or database failure.
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            InterfaceError::ParseHarnessValue(_)
+            | InterfaceError::ToolValidation(_)
+            | InterfaceError::EmptySql => 2,
+            InterfaceError::CurrentDir(_) => 3,
+            InterfaceError::Infrastructure(inner) => infra_exit_code(inner),
+        }
+    }
+
+    /// Stable machine-readable error code string used in the JSON envelope.
+    pub fn error_code(&self) -> &'static str {
+        match self.exit_code() {
+            2 => "validation",
+            _ => "io",
+        }
+    }
+}
+
+fn infra_exit_code(error: &crate::infrastructure::HarnessInfraError) -> i32 {
+    use crate::infrastructure::HarnessInfraError as E;
+    match error {
+        // IO / database / internal failures.
+        E::Sqlite(_)
+        | E::Io(_)
+        | E::CorruptEventLog(_, _)
+        | E::MigrationVerifyFailed(_) => 3,
+        // Everything else is a user-correctable validation / state error.
+        _ => 2,
+    }
+}
+
+/// Render an error as the stable JSON failure envelope.
+pub fn error_envelope(error: &InterfaceError) -> String {
+    let value = json!({
+        "ok": false,
+        "error": {
+            "code": error.error_code(),
+            "message": error.to_string(),
+        }
+    });
+    value.to_string()
+}
+
+fn print_json(value: serde_json::Value) {
+    println!("{value}");
+}
+
+/// Emit `{"ok":true,"command":<command>, ...fields}`.
+fn emit_ok(command: &str, mut fields: serde_json::Map<String, serde_json::Value>) {
+    fields.insert("ok".to_owned(), serde_json::Value::Bool(true));
+    fields.insert(
+        "command".to_owned(),
+        serde_json::Value::String(command.to_owned()),
+    );
+    print_json(serde_json::Value::Object(fields));
+}
+
+/// Emit `{"ok":true,"command":<command>,"data":<data>}`.
+fn emit_data(command: &str, data: serde_json::Value) {
+    let mut fields = serde_json::Map::new();
+    fields.insert("data".to_owned(), data);
+    emit_ok(command, fields);
+}
+
+fn ok_fields<const N: usize>(
+    pairs: [(&str, serde_json::Value); N],
+) -> serde_json::Map<String, serde_json::Value> {
+    pairs
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), value))
+        .collect()
+}
+
+pub fn run(cli: Cli, output: OutputMode) -> Result<(), InterfaceError> {
     let service = HarnessService::new(resolve_context()?);
 
     match cli.command {
@@ -534,7 +645,11 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                 story_id: args.story,
                 notes: args.notes,
             })?;
-            println!("Intake {id} recorded.");
+            if output.is_json() {
+                emit_ok("intake", ok_fields([("id", json!(id))]));
+            } else {
+                println!("Intake {id} recorded.");
+            }
         }
         Command::Story(args) => match args.action {
             StoryAction::Add(args) => {
@@ -546,7 +661,11 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                     verify_command: args.verify,
                     notes: args.notes,
                 })?;
-                println!("Story {} added.", args.id);
+                if output.is_json() {
+                    emit_ok("story.add", ok_fields([("id", json!(args.id))]));
+                } else {
+                    println!("Story {} added.", args.id);
+                }
             }
             StoryAction::Update(args) => {
                 service.update_story(StoryUpdateInput {
@@ -562,7 +681,11 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                     platform: parse_optional_bool("story update: --platform", args.platform)?,
                     verify_command: args.verify,
                 })?;
-                println!("Story {} updated.", args.id);
+                if output.is_json() {
+                    emit_ok("story.update", ok_fields([("id", json!(args.id))]));
+                } else {
+                    println!("Story {} updated.", args.id);
+                }
             }
             StoryAction::Verify { id } => {
                 let result = service.verify_story(&id)?;
@@ -591,7 +714,11 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                         component: args.component,
                         notes: args.notes,
                     })?;
-                    println!("Story signal {id} recorded.");
+                    if output.is_json() {
+                        emit_ok("story.signal.add", ok_fields([("id", json!(id))]));
+                    } else {
+                        println!("Story signal {id} recorded.");
+                    }
                 }
             },
         },
@@ -606,7 +733,11 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                     predicted_impact: args.predicted,
                     notes: args.notes,
                 })?;
-                println!("Decision {} added.", args.id);
+                if output.is_json() {
+                    emit_ok("decision.add", ok_fields([("id", json!(args.id))]));
+                } else {
+                    println!("Decision {} added.", args.id);
+                }
             }
             DecisionAction::Update(args) => {
                 service.update_decision(DecisionUpdateInput {
@@ -643,7 +774,11 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                     predicted_impact: args.predicted,
                     notes: args.notes,
                 })?;
-                println!("Backlog {id} added.");
+                if output.is_json() {
+                    emit_ok("backlog.add", ok_fields([("id", json!(id))]));
+                } else {
+                    println!("Backlog {id} added.");
+                }
             }
             BacklogAction::Close(args) => {
                 let id = args.id;
@@ -679,7 +814,7 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
             }
             ToolAction::Check(args) => {
                 let results = service.check_tools(args.name)?;
-                if args.json {
+                if output.is_json() {
                     print_tool_check_json(&results);
                 } else {
                     print_tool_check_summary(&results);
@@ -721,12 +856,21 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                 decisions: CsvList::from_optional(args.decisions),
                 errors: CsvList::from_optional(args.errors),
             })?;
-            println!("Trace {id} recorded.");
-            let result = service.score_trace(Some(id))?;
-            print_trace_score(&result, false);
-            println!("Reminder: Record any human corrections with: harness-cli intervention add");
-            if let Some(story_id) = story_id {
-                print_story_verify_warning(&service, &story_id)?;
+            let result = service.score_trace(Some(id.clone()))?;
+            if output.is_json() {
+                emit_ok(
+                    "trace",
+                    ok_fields([("id", json!(id)), ("score", trace_score_json(&result))]),
+                );
+            } else {
+                println!("Trace {id} recorded.");
+                print_trace_score(&result, false);
+                println!(
+                    "Reminder: Record any human corrections with: harness-cli intervention add"
+                );
+                if let Some(story_id) = story_id {
+                    print_story_verify_warning(&service, &story_id)?;
+                }
             }
         }
         Command::ScoreTrace(args) => {
@@ -778,14 +922,72 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
             println!("dump hash: {}", result.dump_hash);
         }
         Command::Query(args) => match args.view {
-            QueryView::Matrix(args) => print_matrix(&service.query_matrix()?, args.numeric),
-            QueryView::Backlog(args) => {
-                print_backlog(&service.query_backlog(backlog_filter(&args))?)
+            QueryView::Matrix(args) => {
+                let records = service.query_matrix()?;
+                if output.is_json() {
+                    emit_data(
+                        "query.matrix",
+                        json!(records.iter().map(matrix_json).collect::<Vec<_>>()),
+                    );
+                } else {
+                    print_matrix(&records, args.numeric);
+                }
             }
-            QueryView::Decisions => print_decisions(&service.query_decisions()?),
-            QueryView::Intakes => print_intakes(&service.query_intakes()?),
-            QueryView::Traces => print_traces(&service.query_traces()?),
-            QueryView::Friction => print_friction(&service.query_friction()?),
+            QueryView::Backlog(args) => {
+                let records = service.query_backlog(backlog_filter(&args))?;
+                if output.is_json() {
+                    emit_data(
+                        "query.backlog",
+                        json!(records.iter().map(backlog_json).collect::<Vec<_>>()),
+                    );
+                } else {
+                    print_backlog(&records);
+                }
+            }
+            QueryView::Decisions => {
+                let records = service.query_decisions()?;
+                if output.is_json() {
+                    emit_data(
+                        "query.decisions",
+                        json!(records.iter().map(decision_json).collect::<Vec<_>>()),
+                    );
+                } else {
+                    print_decisions(&records);
+                }
+            }
+            QueryView::Intakes => {
+                let records = service.query_intakes()?;
+                if output.is_json() {
+                    emit_data(
+                        "query.intakes",
+                        json!(records.iter().map(intake_json).collect::<Vec<_>>()),
+                    );
+                } else {
+                    print_intakes(&records);
+                }
+            }
+            QueryView::Traces => {
+                let records = service.query_traces()?;
+                if output.is_json() {
+                    emit_data(
+                        "query.traces",
+                        json!(records.iter().map(trace_json).collect::<Vec<_>>()),
+                    );
+                } else {
+                    print_traces(&records);
+                }
+            }
+            QueryView::Friction => {
+                let records = service.query_friction()?;
+                if output.is_json() {
+                    emit_data(
+                        "query.friction",
+                        json!(records.iter().map(friction_json).collect::<Vec<_>>()),
+                    );
+                } else {
+                    print_friction(&records);
+                }
+            }
             QueryView::Tools(args) => {
                 let responsibility = args
                     .responsibility
@@ -801,31 +1003,59 @@ pub fn run(cli: Cli) -> Result<(), InterfaceError> {
                     let normalized = status.trim().to_lowercase();
                     tools.retain(|tool| tool.status == normalized);
                 }
-                if args.json {
+                if output.is_json() {
                     print_tools_json(&tools);
                 } else {
                     print_tools_summary(&tools);
                 }
             }
             QueryView::Interventions(args) => {
-                print_interventions(&service.query_interventions(InterventionFilter {
+                let records = service.query_interventions(InterventionFilter {
                     trace_id: args.trace,
                     story_id: args.story,
                     intervention_type: args.intervention_type,
-                })?);
+                })?;
+                if output.is_json() {
+                    emit_data(
+                        "query.interventions",
+                        json!(records.iter().map(intervention_json).collect::<Vec<_>>()),
+                    );
+                } else {
+                    print_interventions(&records);
+                }
             }
             QueryView::Signals(args) => {
-                print_signals(&service.query_story_signals(StorySignalFilter {
+                let records = service.query_story_signals(StorySignalFilter {
                     story_id: args.story,
                     signal_type: args.signal_type,
-                })?);
+                })?;
+                if output.is_json() {
+                    emit_data(
+                        "query.signals",
+                        json!(records.iter().map(signal_json).collect::<Vec<_>>()),
+                    );
+                } else {
+                    print_signals(&records);
+                }
             }
-            QueryView::Stats => print_stats(&service.query_stats()?),
+            QueryView::Stats => {
+                let stats = service.query_stats()?;
+                if output.is_json() {
+                    emit_data("query.stats", stats_json(&stats));
+                } else {
+                    print_stats(&stats);
+                }
+            }
             QueryView::Sql { query } => {
                 if query.is_empty() {
                     return Err(InterfaceError::EmptySql);
                 }
-                print_query_table(&service.query_sql(&query.join(" "))?);
+                let table = service.query_sql(&query.join(" "))?;
+                if output.is_json() {
+                    emit_data("query.sql", query_table_json(&table));
+                } else {
+                    print_query_table(&table);
+                }
             }
         },
     }
@@ -1445,6 +1675,138 @@ fn json_escape(value: &str) -> String {
         .replace('\n', "\\n")
 }
 
+fn matrix_json(record: &StoryMatrixRecord) -> serde_json::Value {
+    json!({
+        "id": record.id,
+        "title": record.title,
+        "status": record.status,
+        "unit": record.unit != 0,
+        "integration": record.integration != 0,
+        "e2e": record.e2e != 0,
+        "platform": record.platform != 0,
+        "evidence": record.evidence,
+    })
+}
+
+fn backlog_json(record: &BacklogRecord) -> serde_json::Value {
+    json!({
+        "id": record.id,
+        "title": record.title,
+        "status": record.status,
+        "risk": record.risk,
+        "predicted_impact": record.predicted_impact,
+        "actual_outcome": record.actual_outcome,
+    })
+}
+
+fn decision_json(record: &DecisionRecord) -> serde_json::Value {
+    json!({
+        "id": record.id,
+        "title": record.title,
+        "status": record.status,
+        "last_verified_at": record.last_verified_at,
+        "last_verified_result": record.last_verified_result,
+    })
+}
+
+fn intake_json(record: &IntakeRecord) -> serde_json::Value {
+    json!({
+        "id": record.id,
+        "created_at": record.created_at,
+        "input_type": record.input_type,
+        "risk_lane": record.risk_lane,
+        "summary": record.summary,
+    })
+}
+
+fn trace_json(record: &TraceRecord) -> serde_json::Value {
+    json!({
+        "id": record.id,
+        "created_at": record.created_at,
+        "outcome": record.outcome,
+        "task_summary": record.task_summary,
+        "harness_friction": record.harness_friction,
+    })
+}
+
+fn friction_json(record: &FrictionRecord) -> serde_json::Value {
+    json!({
+        "id": record.id,
+        "created_at": record.created_at,
+        "risk_lane": record.risk_lane,
+        "input_type": record.input_type,
+        "task_summary": record.task_summary,
+        "harness_friction": record.harness_friction,
+    })
+}
+
+fn intervention_json(record: &InterventionRecord) -> serde_json::Value {
+    json!({
+        "id": record.id,
+        "created_at": record.created_at,
+        "trace_id": record.trace_id,
+        "story_id": record.story_id,
+        "intervention_type": record.intervention_type,
+        "description": record.description,
+        "source": record.source,
+        "impact": record.impact,
+    })
+}
+
+fn signal_json(record: &StorySignalRecord) -> serde_json::Value {
+    json!({
+        "id": record.id,
+        "created_at": record.created_at,
+        "story_id": record.story_id,
+        "trace_id": record.trace_id,
+        "signal_type": record.signal_type,
+        "summary": record.summary,
+        "component": record.component,
+        "notes": record.notes,
+    })
+}
+
+fn stats_json(stats: &HarnessStats) -> serde_json::Value {
+    json!({
+        "intakes": stats.intakes,
+        "stories": stats.stories,
+        "decisions": stats.decisions,
+        "backlog_items": stats.backlog_items,
+        "traces": stats.traces,
+    })
+}
+
+fn query_table_json(table: &QueryTable) -> serde_json::Value {
+    let rows = table
+        .rows
+        .iter()
+        .map(|row| {
+            let mut object = serde_json::Map::new();
+            for (index, header) in table.headers.iter().enumerate() {
+                let cell = row.get(index).cloned().unwrap_or_default();
+                object.insert(header.clone(), json!(cell));
+            }
+            serde_json::Value::Object(object)
+        })
+        .collect::<Vec<_>>();
+    json!(rows)
+}
+
+fn trace_score_json(result: &TraceScoreResult) -> serde_json::Value {
+    json!({
+        "trace_id": result.trace_id,
+        "achieved_tier": result.achieved.label(),
+        "achieved_score": result.achieved.score(),
+        "risk_lane": result.risk_lane,
+        "required_tier": result.required.map(|tier| tier.label()),
+        "required_score": result.required.map(|tier| tier.score()),
+        "meets_requirement": result.meets_requirement,
+        "missing_minimal": result.missing_minimal,
+        "missing_standard": result.missing_standard,
+        "missing_detailed": result.missing_detailed,
+    })
+}
+
 fn print_stats(stats: &HarnessStats) {
     println!("=== Harness Stats ===");
     print_table(
@@ -1516,6 +1878,130 @@ mod tests {
     #[test]
     fn cli_definition_is_valid() {
         Cli::command().debug_assert();
+    }
+
+    fn json_service() -> (tempfile::TempDir, HarnessService) {
+        let temp = tempfile::tempdir().unwrap();
+        let schema_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .unwrap()
+            .join("scripts/schema");
+        let service = HarnessService::new(HarnessContext {
+            repo_root: temp.path().to_path_buf(),
+            db_path: temp.path().join("harness.db"),
+            schema_dir,
+        });
+        service.init().unwrap();
+        (temp, service)
+    }
+
+    #[test]
+    fn output_mode_selects_json_from_flag_or_env() {
+        assert_eq!(OutputMode::resolve(true), OutputMode::Json);
+        assert_eq!(OutputMode::resolve(false), OutputMode::Human);
+        // The env var is process-global; assert only the flag path here to
+        // avoid cross-test interference.
+    }
+
+    #[test]
+    fn validation_errors_exit_two_io_errors_exit_three() {
+        let parse: InterfaceError = RiskLane::from_str("bogus").unwrap_err().into();
+        assert_eq!(parse.exit_code(), 2);
+        assert_eq!(parse.error_code(), "validation");
+
+        let empty_sql = InterfaceError::EmptySql;
+        assert_eq!(empty_sql.exit_code(), 2);
+
+        let not_found: InterfaceError =
+            crate::infrastructure::HarnessInfraError::StoryNotFound("US-1".to_owned()).into();
+        assert_eq!(not_found.exit_code(), 2);
+
+        let io: InterfaceError =
+            crate::infrastructure::HarnessInfraError::Io(std::io::Error::other("disk gone")).into();
+        assert_eq!(io.exit_code(), 3);
+        assert_eq!(io.error_code(), "io");
+    }
+
+    #[test]
+    fn error_envelope_is_stable_failure_shape() {
+        let error: InterfaceError = InterfaceError::EmptySql;
+        let value: serde_json::Value = serde_json::from_str(&error_envelope(&error)).unwrap();
+        assert_eq!(value["ok"], serde_json::json!(false));
+        assert_eq!(value["error"]["code"], serde_json::json!("validation"));
+        assert!(value["error"]["message"].is_string());
+    }
+
+    #[test]
+    fn matrix_json_shape_is_stable() {
+        let record = StoryMatrixRecord {
+            id: "US-1".to_owned(),
+            title: "title".to_owned(),
+            status: "planned".to_owned(),
+            unit: 1,
+            integration: 0,
+            e2e: 0,
+            platform: 0,
+            evidence: None,
+        };
+        assert_eq!(
+            matrix_json(&record),
+            json!({
+                "id": "US-1",
+                "title": "title",
+                "status": "planned",
+                "unit": true,
+                "integration": false,
+                "e2e": false,
+                "platform": false,
+                "evidence": null,
+            })
+        );
+    }
+
+    #[test]
+    fn backlog_round_trips_through_json() {
+        let (_temp, service) = json_service();
+        let id = service
+            .add_backlog(BacklogAddInput {
+                title: "round-trip via --json".to_owned(),
+                discovered_while: None,
+                current_pain: None,
+                suggestion: None,
+                risk: None,
+                predicted_impact: None,
+                notes: None,
+            })
+            .unwrap();
+
+        let records = service.query_backlog(BacklogFilter::All).unwrap();
+        let data = json!(records.iter().map(backlog_json).collect::<Vec<_>>());
+        assert_eq!(data[0]["id"], json!(id));
+        assert_eq!(data[0]["title"], json!("round-trip via --json"));
+        assert_eq!(data[0]["status"], json!("proposed"));
+    }
+
+    #[test]
+    fn intake_round_trips_through_json() {
+        let (_temp, service) = json_service();
+        let id = service
+            .record_intake(IntakeInput {
+                input_type: InputType::from_str("change_request").unwrap(),
+                summary: "add json mode".to_owned(),
+                risk_lane: RiskLane::from_str("normal").unwrap(),
+                risk_flags: CsvList::from_optional(None),
+                affected_docs: CsvList::from_optional(None),
+                story_id: None,
+                notes: None,
+            })
+            .unwrap();
+
+        let records = service.query_intakes().unwrap();
+        let data = json!(records.iter().map(intake_json).collect::<Vec<_>>());
+        assert_eq!(data[0]["id"], json!(id));
+        assert_eq!(data[0]["input_type"], json!("change_request"));
+        assert_eq!(data[0]["risk_lane"], json!("normal"));
+        assert_eq!(data[0]["summary"], json!("add json mode"));
     }
 
     #[test]
