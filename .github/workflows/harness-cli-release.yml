@@ -56,7 +56,14 @@ jobs:
         run: |
           bash -n scripts/install-harness.sh
           bash -n scripts/build-harness-cli-release.sh
+          bash -n scripts/build-harness-dist.sh
+          bash -n scripts/build-manifest.sh
           bash -n scripts/calibrate-harness.sh
+
+      - name: Dist bundle parity (contents == installer file list)
+        run: |
+          scripts/build-harness-dist.sh --version ci-parity --out-dir dist
+          scripts/build-harness-dist.sh --version ci-parity --out-dir dist --check
 
   build:
     name: Build ${{ matrix.platform }}
@@ -116,21 +123,74 @@ jobs:
             dist/${{ matrix.binary }}.sha256
           if-no-files-found: error
 
+  bundle:
+    name: Build distribution bundle
+    needs: verify
+    runs-on: ubuntu-24.04
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
+
+      - name: Build harness-dist bundle
+        shell: bash
+        run: |
+          version="${RELEASE_TAG#harness-cli-}"
+          scripts/build-harness-dist.sh --version "$version" --out-dir dist
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-dist
+          path: |
+            dist/harness-dist-*.tar.gz
+            dist/harness-dist-*.tar.gz.sha256
+          if-no-files-found: error
+
   publish:
     name: Publish GitHub Release
-    needs: build
+    needs: [build, bundle]
     runs-on: ubuntu-24.04
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.release_tag != '' }}
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: harness-cli-*
           merge-multiple: true
           path: dist
+
+      - name: Download distribution bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: harness-dist
+          path: dist
+
+      - name: Generate release manifest
+        shell: bash
+        run: |
+          version="${RELEASE_TAG#harness-cli-}"
+          scripts/build-manifest.sh \
+            --version "$version" \
+            --dist-dir dist \
+            --notes "Harness CLI release $RELEASE_TAG"
+
+      - name: Verify manifest against built assets
+        shell: bash
+        run: |
+          version="${RELEASE_TAG#harness-cli-}"
+          scripts/build-manifest.sh --version "$version" --dist-dir dist --check
 
       - name: Create release if needed
         run: |
@@ -141,4 +201,10 @@ jobs:
               --notes "Harness CLI release $RELEASE_TAG"
 
       - name: Upload release assets
-        run: gh release upload "$RELEASE_TAG" dist/harness-cli-* --repo "$GITHUB_REPOSITORY" --clobber
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            dist/harness-cli-* \
+            dist/harness-dist-*.tar.gz \
+            dist/harness-dist-*.tar.gz.sha256 \
+            dist/manifest.json \
+            --repo "$GITHUB_REPOSITORY" --clobber
