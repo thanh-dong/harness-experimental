@@ -132,6 +132,14 @@ scripts/bin/harness-cli query   stats
 scripts/bin/harness-cli --version
 ```
 
+These commands are the **bash flavor** of the operating instructions, for CLI
+consumers. A parallel **MCP flavor** lives in `docs/templates/mcp/`: it mirrors
+the same gate obligations and record-keeping against typed MCP tool names
+(`harness_intake`, `harness_story_add`, `harness_query_matrix`, …) for
+tool-hosting consumers such as Shuttle, with the exact tool ↔ CLI mapping in
+`docs/templates/mcp/TOOL_MAPPING.md`. Gate semantics are identical; only the
+invocation surface changes.
+
 ## Source Hierarchy
 
 ```text

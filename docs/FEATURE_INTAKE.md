@@ -6,6 +6,13 @@ stories, or implementation work.
 
 The human does not need to classify risk. The harness does.
 
+The gate wording ships in two flavors with one owner (this repo): the **bash
+flavor** in this document and `docs/HARNESS.md` references `harness-cli` shell
+commands for CLI consumers, and the **MCP flavor** in `docs/templates/mcp/`
+mirrors the same obligations against typed MCP tool names (`harness_intake`,
+`harness_story_add`, …) for tool-hosting consumers such as Shuttle. Only the
+invocation surface differs; gate semantics are identical.
+
 ## Intake Flow
 
 ```text
