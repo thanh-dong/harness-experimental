@@ -54,6 +54,7 @@ Current migrated commands:
 ```bash
 scripts/bin/harness-cli init
 scripts/bin/harness-cli migrate
+scripts/bin/harness-cli info
 scripts/bin/harness-cli import brownfield
 scripts/bin/harness-cli intake ...
 scripts/bin/harness-cli story add ...
@@ -95,7 +96,26 @@ HARNESS_OUTPUT=json scripts/bin/harness-cli query matrix
 ```
 
 Supported on `intake`, `story add|update|signal`, `decision add`, `trace`,
-`backlog add`, every `query *` view, and `tool check`.
+`backlog add`, every `query *` view, `tool check`, and `info`.
+
+`info` (US-036) reports version and state so a machine consumer can decide
+verify / migrate / refuse without parsing files. It works on an uninitialized
+repo (reports absence, exits `0`). `--json` emits, under `"data"`: `cliVersion`,
+`supportedSchemaVersion`, `availableSchemaVersion`, `eventFormatVersion`,
+`initialized`, `dbPath`, `appliedSchemaVersion`, `appliedMigrations`,
+`eventBacked`, `eventFiles`, and two action flags — `schemaBehindCli` (the
+applied schema is behind the migrations on disk → run `migrate`) and
+`cacheBehindLog` (the log holds events the cache has not consumed → any command
+replays them).
+
+```json
+{"ok":true,"command":"info","data":{"cliVersion":"0.1.13","appliedSchemaVersion":8,"schemaBehindCli":false,"cacheBehindLog":false, "...":"..."}}
+```
+
+Every command an unattended operator calls runs headless — no prompts, no TTY
+assumptions — with stdin closed and no controlling terminal (US-033). The
+`headless-matrix` CI job and `scripts/test-headless.sh` enforce this over the
+command set.
 
 Success emits `{"ok":true,"command":"<name>", ...}`. Write commands add the
 affected `"id"`; `query *` views wrap their rows under `"data"`:
@@ -174,6 +194,64 @@ The installer must stay limited to harness files. Do not use it to scaffold
 application source folders, package scripts, CI, tests, platform shells, or fake
 validation commands. The installer script is not part of the installed project
 payload.
+
+### Machine install/upgrade contract
+
+For non-interactive / programmatic consumers (e.g. Shuttle) the installer is a
+stable contract. Drive it with `--yes` plus, as needed,
+`HARNESS_SOURCE_BASE_URL`, `--merge`, `--dry-run`, `--directory`, and
+`--summary-json`.
+
+**Exit codes** (same convention as the Harness CLI, US-032):
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Success. |
+| `2` | Validation / bad input — user-correctable: unknown option, missing option value, bad target path, unsupported CLI platform, or a protected-path conflict (`AGENTS.md`/`docs/`/`scripts/` already present) in a non-interactive run without `--merge` or `--override`. |
+| `3` | IO / download failure: `curl` download failed, checksum mismatch or empty checksum file, missing local source file, target directory not writable or not creatable, or a required tool (`curl`/`shasum`) is absent. |
+
+**Detect-and-upgrade.** The three consumer cases are deterministic and
+idempotent:
+
+- **Fresh install** — empty target: every harness file is created.
+- **Merge-upgrade** (`--merge`) over an existing harness: existing files are
+  kept in place and only missing harness files are created. `--merge` never
+  overwrites, moves, or deletes existing stories, decisions, or `harness.db`.
+- **Already-current** — re-running `--merge` produces the same result (0
+  created, 0 updated); the run is a no-op you can repeat safely.
+
+`--dry-run` reports exactly the actions a real run then performs; its
+`createdFiles` set equals the real run's.
+
+**`--summary-json <path>`** writes one machine-readable JSON object describing
+the run (use `-` for stdout). It is emitted only on success (exit 0); on
+failure the exit code is the machine signal. Schema:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `ok` | boolean | Always `true` (only emitted on success). |
+| `target` | string | Absolute target directory. |
+| `sourceMode` | string | `local` (repo checkout) or `remote` (download). |
+| `dryRun` | boolean | Whether this was a `--dry-run`. |
+| `conflictAction` | string | `install`, `merge`, or `override`. |
+| `created` / `updated` / `skipped` | number | Per-category file counts. |
+| `createdFiles` / `updatedFiles` / `skippedFiles` | string[] | Repo-relative paths per category. |
+
+```bash
+scripts/install-harness.sh --yes --merge --summary-json /tmp/harness-install.json /path/to/project
+# {"ok":true,"target":"/path/to/project","sourceMode":"local","dryRun":false,
+#  "conflictAction":"merge","created":0,"updated":0,"skipped":50,
+#  "createdFiles":[],"updatedFiles":[],"skippedFiles":["AGENTS.md", ...]}
+```
+
+`scripts/test-install-contract.sh` exercises this contract on throwaway
+`mktemp` dirs — fresh / merge-over-existing / re-run idempotent / dry-run
+parity, asserting the exit codes and JSON summary shape. It is offline
+(local source mode + a fake `file://` CLI artifact) and CI-ready:
+
+```bash
+scripts/test-install-contract.sh
+```
 
 By default the installer also downloads the prebuilt Rust Harness CLI for the
 current platform into `scripts/bin/harness-cli` on macOS/Linux or

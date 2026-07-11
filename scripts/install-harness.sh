@@ -26,7 +26,17 @@ Options:
                          AGENTS.md, docs/, and scripts/.
       --force            Overwrite existing files after backing them up.
       --dry-run          Show what would change without writing files.
+      --summary-json <path>
+                         Write a machine-readable JSON summary of the run to
+                         <path> (use "-" for stdout). Emitted only on success.
   -h, --help             Show this help.
+
+Exit codes (machine contract):
+  0  Success.
+  2  Validation / bad input — user-correctable (unknown option, bad path,
+     protected-path conflict without --merge/--override, unsupported platform).
+  3  IO / download failure (curl download failed, checksum mismatch, target
+     not writable, missing source file, missing required tool).
 
 Safety:
   If AGENTS.md, docs/, or scripts/ already exist, interactive installs ask
@@ -41,6 +51,7 @@ Examples:
   scripts/install-harness.sh
   scripts/install-harness.sh --directory /path/to/project --yes
   scripts/install-harness.sh ./my-project --force
+  scripts/install-harness.sh --merge --yes --summary-json /tmp/harness-install.json
   curl -fsSL https://raw.githubusercontent.com/thanh-dong/harness-repository-cc/main/scripts/install-harness.sh | bash -s -- --yes
   curl -fsSL https://raw.githubusercontent.com/thanh-dong/harness-repository-cc/main/scripts/install-harness.sh | bash -s -- --merge --yes
   curl -fsSL https://raw.githubusercontent.com/thanh-dong/harness-repository-cc/main/scripts/install-harness.sh | bash -s -- --merge --refresh-agent-shim --yes
@@ -52,14 +63,55 @@ log() {
   printf '%s\n' "$*"
 }
 
+# Exit 3: IO / download / execution failure.
 fail() {
   printf 'Error: %s\n' "$*" >&2
-  exit 1
+  exit 3
 }
 
+# Exit 2: validation / bad input — user-correctable.
+fail_input() {
+  printf 'Error: %s\n' "$*" >&2
+  exit 2
+}
+
+# Exit 2: validation stop (refuse to clobber, user-chosen stop).
 warn_stop() {
   printf 'Warning: %s\n' "$*" >&2
-  exit 1
+  exit 2
+}
+
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  printf '%s' "$s"
+}
+
+json_string_array() {
+  local first=1 e
+  printf '['
+  for e in "$@"; do
+    [ "$first" -eq 1 ] || printf ','
+    printf '"%s"' "$(json_escape "$e")"
+    first=0
+  done
+  printf ']'
+}
+
+record_created() {
+  CREATED=$((CREATED + 1))
+  CREATED_FILES+=("$1")
+}
+
+record_updated() {
+  UPDATED=$((UPDATED + 1))
+  UPDATED_FILES+=("$1")
+}
+
+record_skipped() {
+  SKIPPED=$((SKIPPED + 1))
+  SKIPPED_FILES+=("$1")
 }
 
 can_prompt() {
@@ -97,7 +149,7 @@ make_absolute_parent() {
   local path="$1"
   local parent
   parent="$(dirname "$path")"
-  [ -d "$parent" ] || fail "Parent directory does not exist: $parent"
+  [ -d "$parent" ] || fail_input "Parent directory does not exist: $parent"
   (cd "$parent" && printf '%s/%s\n' "$(pwd -P)" "$(basename "$path")")
 }
 
@@ -113,13 +165,13 @@ copy_file() {
   if [ -e "$target" ]; then
     if [ "$SOURCE_MODE" = "local" ] && [ "$SOURCE_ROOT/$relative" -ef "$target" ]; then
       log "skip     $relative (source file)"
-      SKIPPED=$((SKIPPED + 1))
+      record_skipped "$relative"
       return
     fi
 
     if [ "$CONFLICT_ACTION" = "merge" ]; then
       log "skip     $relative (merge keeps existing file)"
-      SKIPPED=$((SKIPPED + 1))
+      record_skipped "$relative"
     elif [ "$FORCE" -eq 1 ]; then
       if [ "$DRY_RUN" -eq 1 ]; then
         log "overwrite $relative (backup first)"
@@ -130,10 +182,10 @@ copy_file() {
         write_source_file "$relative" "$target"
         log "updated $relative (backup: ${backup#$TARGET_DIR/})"
       fi
-      UPDATED=$((UPDATED + 1))
+      record_updated "$relative"
     else
       log "skip     $relative (already exists)"
-      SKIPPED=$((SKIPPED + 1))
+      record_skipped "$relative"
     fi
     return
   fi
@@ -145,7 +197,7 @@ copy_file() {
     write_source_file "$relative" "$target"
     log "created  $relative"
   fi
-  CREATED=$((CREATED + 1))
+  record_created "$relative"
 }
 
 merge_gitignore() {
@@ -167,7 +219,7 @@ if grep -Fxq "harness.db" "$target" &&
    grep -Fxq "scripts/bin/harness-cli" "$target" &&
    grep -Fxq "scripts/bin/harness-cli.exe" "$target"; then
     log "skip     .gitignore (harness rules already present)"
-    SKIPPED=$((SKIPPED + 1))
+    record_skipped ".gitignore"
     return
   fi
 
@@ -180,7 +232,7 @@ if grep -Fxq "harness.db" "$target" &&
     } >> "$target"
     log "updated  .gitignore (appended harness rules)"
   fi
-  UPDATED=$((UPDATED + 1))
+  record_updated ".gitignore"
 }
 
 mark_shell_script_executable() {
@@ -362,7 +414,7 @@ refresh_agent_shim() {
     else
       log "refresh  AGENTS.md (append or replace marked Harness block, backup first)"
     fi
-    UPDATED=$((UPDATED + 1))
+    record_updated "AGENTS.md"
     return 0
   fi
 
@@ -379,7 +431,7 @@ refresh_agent_shim() {
     append_or_replace_agent_harness_block
     log "updated  AGENTS.md (refreshed Harness block; backup: ${BACKUP_DIR#$TARGET_DIR/}/AGENTS.md)"
   fi
-  UPDATED=$((UPDATED + 1))
+  record_updated "AGENTS.md"
 }
 
 backup_claude_file() {
@@ -400,7 +452,7 @@ write_claude_shim() {
   if [ "$SOURCE_MODE" = "local" ] && [ -e "$target" ] &&
      [ "$SOURCE_ROOT/CLAUDE.md" -ef "$target" ]; then
     log "skip     CLAUDE.md (source file)"
-    SKIPPED=$((SKIPPED + 1))
+    record_skipped "CLAUDE.md"
     return 0
   fi
 
@@ -419,7 +471,7 @@ write_claude_shim() {
     ' "$target" > "$current_tmp"
     if cmp -s "$current_tmp" "$block_tmp"; then
       log "skip     CLAUDE.md (Harness block current)"
-      SKIPPED=$((SKIPPED + 1))
+      record_skipped "CLAUDE.md"
       rm -f "$current_tmp" "$block_tmp"
       return 0
     fi
@@ -447,7 +499,7 @@ write_claude_shim() {
       mv "$tmp" "$target"
       log "updated  CLAUDE.md (refreshed Harness block; backup: ${BACKUP_DIR#$TARGET_DIR/}/CLAUDE.md)"
     fi
-    UPDATED=$((UPDATED + 1))
+    record_updated "CLAUDE.md"
   elif [ -e "$target" ]; then
     if [ "$DRY_RUN" -eq 1 ]; then
       log "update   CLAUDE.md (append Harness block, backup first)"
@@ -459,7 +511,7 @@ write_claude_shim() {
       } >> "$target"
       log "updated  CLAUDE.md (appended Harness block; backup: ${BACKUP_DIR#$TARGET_DIR/}/CLAUDE.md)"
     fi
-    UPDATED=$((UPDATED + 1))
+    record_updated "CLAUDE.md"
   else
     if [ "$DRY_RUN" -eq 1 ]; then
       log "create   CLAUDE.md"
@@ -470,7 +522,7 @@ write_claude_shim() {
       } > "$target"
       log "created  CLAUDE.md"
     fi
-    CREATED=$((CREATED + 1))
+    record_created "CLAUDE.md"
   fi
   rm -f "$block_tmp"
 }
@@ -486,7 +538,7 @@ detect_cli_platform() {
     Linux:x86_64)  printf 'linux-x64' ;;
     Linux:aarch64|Linux:arm64) printf 'linux-arm64' ;;
     *)
-      fail "Unsupported Harness CLI platform: $os/$arch."
+      fail_input "Unsupported Harness CLI platform: $os/$arch."
       ;;
   esac
 }
@@ -554,14 +606,14 @@ install_harness_cli_binary() {
 
   if [ -e "$target" ] && [ "$CONFLICT_ACTION" = "merge" ] && [ "$FORCE" -eq 0 ]; then
     log "skip     scripts/bin/harness-cli (merge keeps existing file)"
-    SKIPPED=$((SKIPPED + 1))
+    record_skipped "scripts/bin/harness-cli"
     return 0
   fi
 
   if [ "$DRY_RUN" -eq 1 ]; then
     log "download $binary_name -> scripts/bin/harness-cli"
     log "verify   $binary_name.sha256"
-    CREATED=$((CREATED + 1))
+    record_created "scripts/bin/harness-cli"
     return 0
   fi
 
@@ -588,10 +640,10 @@ install_harness_cli_binary() {
       mkdir -p "$BACKUP_DIR/scripts/bin"
       cp -p "$target" "$BACKUP_DIR/scripts/bin/harness-cli"
     fi
-    UPDATED=$((UPDATED + 1))
+    record_updated "scripts/bin/harness-cli"
     log "updated  scripts/bin/harness-cli"
   else
-    CREATED=$((CREATED + 1))
+    record_created "scripts/bin/harness-cli"
     log "created  scripts/bin/harness-cli"
   fi
 
@@ -664,7 +716,7 @@ check_protected_target_paths() {
       warn_stop "installation stopped by user."
       ;;
     *)
-      warn_stop "unknown choice: $choice"
+      fail_input "unknown choice: $choice"
       ;;
   esac
 }
@@ -686,6 +738,30 @@ override_protected_target_paths() {
   done
 }
 
+emit_summary_json() {
+  [ -n "$SUMMARY_JSON" ] || return 0
+
+  local dry_run_json="false"
+  [ "$DRY_RUN" -eq 1 ] && dry_run_json="true"
+
+  local json
+  json="$(printf '{"ok":true,"target":"%s","sourceMode":"%s","dryRun":%s,"conflictAction":"%s","created":%s,"updated":%s,"skipped":%s,"createdFiles":%s,"updatedFiles":%s,"skippedFiles":%s}' \
+    "$(json_escape "$TARGET_DIR")" \
+    "$(json_escape "$SOURCE_MODE")" \
+    "$dry_run_json" \
+    "$(json_escape "$CONFLICT_ACTION")" \
+    "$CREATED" "$UPDATED" "$SKIPPED" \
+    "$(json_string_array ${CREATED_FILES[@]+"${CREATED_FILES[@]}"})" \
+    "$(json_string_array ${UPDATED_FILES[@]+"${UPDATED_FILES[@]}"})" \
+    "$(json_string_array ${SKIPPED_FILES[@]+"${SKIPPED_FILES[@]}"})")"
+
+  if [ "$SUMMARY_JSON" = "-" ]; then
+    printf '%s\n' "$json"
+  else
+    printf '%s\n' "$json" > "$SUMMARY_JSON" || fail "Could not write summary JSON: $SUMMARY_JSON"
+  fi
+}
+
 TARGET_INPUT="${HARNESS_TARGET_DIR:-$PWD}"
 YES=0
 FORCE=0
@@ -695,11 +771,12 @@ REFRESH_AGENT_SHIM=0
 INSTALL_CLAUDE_SHIM=0
 REQUESTED_CONFLICT_ACTION=""
 POSITIONAL_TARGET=""
+SUMMARY_JSON=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -d|--directory)
-      [ "$#" -ge 2 ] || fail "$1 requires a path"
+      [ "$#" -ge 2 ] || fail_input "$1 requires a path"
       TARGET_INPUT="$2"
       shift 2
       ;;
@@ -735,6 +812,11 @@ while [ "$#" -gt 0 ]; do
       DRY_RUN=1
       shift
       ;;
+    --summary-json)
+      [ "$#" -ge 2 ] || fail_input "$1 requires a path"
+      SUMMARY_JSON="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -744,10 +826,10 @@ while [ "$#" -gt 0 ]; do
       break
       ;;
     -*)
-      fail "Unknown option: $1"
+      fail_input "Unknown option: $1"
       ;;
     *)
-      [ -z "$POSITIONAL_TARGET" ] || fail "Only one target path is supported"
+      [ -z "$POSITIONAL_TARGET" ] || fail_input "Only one target path is supported"
       POSITIONAL_TARGET="$1"
       shift
       ;;
@@ -755,12 +837,12 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ "$#" -gt 0 ]; then
-  [ -z "$POSITIONAL_TARGET" ] || fail "Only one target path is supported"
+  [ -z "$POSITIONAL_TARGET" ] || fail_input "Only one target path is supported"
   POSITIONAL_TARGET="$1"
   shift
 fi
 
-[ "$#" -eq 0 ] || fail "Unexpected extra arguments"
+[ "$#" -eq 0 ] || fail_input "Unexpected extra arguments"
 
 if [ -n "$POSITIONAL_TARGET" ]; then
   TARGET_INPUT="$POSITIONAL_TARGET"
@@ -797,12 +879,15 @@ BACKUP_DIR="$TARGET_DIR/.harness-backup/$(date +%Y%m%d%H%M%S)"
 CREATED=0
 UPDATED=0
 SKIPPED=0
+CREATED_FILES=()
+UPDATED_FILES=()
+SKIPPED_FILES=()
 CONFLICT_ACTION="install"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   log "Dry run: no files will be written."
 elif [ ! -d "$TARGET_DIR" ]; then
-  mkdir -p "$TARGET_DIR"
+  mkdir -p "$TARGET_DIR" || fail "Target directory could not be created: $TARGET_DIR"
 fi
 
 if [ ! -d "$TARGET_DIR" ]; then
@@ -883,6 +968,7 @@ scripts/schema/004-intervention.sql
 scripts/schema/005-tool-extensions.sql
 scripts/schema/006-story-signal.sql
 scripts/schema/007-ulid-ids.sql
+scripts/schema/008-intervention-review.sql
 .gitignore
 EOF
 
@@ -900,3 +986,6 @@ fi
 if [ "$FORCE" -eq 1 ] && [ "$UPDATED" -gt 0 ] && [ "$DRY_RUN" -eq 0 ]; then
   log "Backups were written to: $BACKUP_DIR"
 fi
+
+emit_summary_json
+exit 0
