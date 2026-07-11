@@ -16,10 +16,10 @@ use serde_json::json;
 
 use crate::application::{
     BacklogAddInput, BacklogCloseInput, BrownfieldImportResult, DecisionAddInput,
-    DecisionUpdateInput,
-    DecisionVerifyResult, HarnessContext, InitResult, IntakeInput, InterventionAddInput,
-    InterventionFilter, MigrateResult, QueryTable, StoryAddInput, StorySignalAddInput,
-    StorySignalFilter, StoryUpdateInput, StoryVerifyResult, ToolRegisterInput, TraceInput,
+    DecisionUpdateInput, DecisionVerifyResult, HarnessContext, InitResult, IntakeInput,
+    InterventionAddInput, InterventionFilter, MigrateResult, QueryTable, StoryAddInput,
+    StorySignalAddInput, StorySignalFilter, StoryUpdateInput, StoryVerifyResult, ToolRegisterInput,
+    TraceInput,
 };
 use crate::domain::{
     compiled_tool_registry, normalize_token, score_context, score_trace, validate_tool_description,
@@ -5028,9 +5028,7 @@ mod tests {
                     "SELECT title, status, COALESCE(verify_command,'<null>'), COALESCE(notes,'')
                      FROM decision WHERE id='0002-update';",
                     [],
-                    |row| {
-                        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-                    },
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )
                 .unwrap()
         };
@@ -6146,8 +6144,7 @@ implemented
             .unwrap();
 
         let events_dir = temp_dir.path().join(".harness/events");
-        let writer_file =
-            events_dir.join(format!("{}.jsonl", own_writer_name(&events_dir)));
+        let writer_file = events_dir.join(format!("{}.jsonl", own_writer_name(&events_dir)));
         let mut existing = fs::read_to_string(&writer_file).unwrap();
         existing.push_str("{\"event_id\":\"z\",\"writer\":\"x\",\"recorded_at\":\"t\",\"op\":\"intake.record\",\"schema\":1,\"payload\":{}}\n");
         fs::write(&writer_file, existing).unwrap();

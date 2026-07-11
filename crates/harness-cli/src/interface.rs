@@ -8,10 +8,9 @@ use thiserror::Error;
 
 use crate::application::{
     BacklogAddInput, BacklogCloseInput, BrownfieldImportResult, DecisionAddInput,
-    DecisionUpdateInput, HarnessContext,
-    HarnessService, InitResult, IntakeInput, InterventionAddInput, InterventionFilter,
-    MigrateResult, QueryTable, StoryAddInput, StorySignalAddInput, StorySignalFilter,
-    StoryUpdateInput, ToolRegisterInput, TraceInput,
+    DecisionUpdateInput, HarnessContext, HarnessService, InitResult, IntakeInput,
+    InterventionAddInput, InterventionFilter, MigrateResult, QueryTable, StoryAddInput,
+    StorySignalAddInput, StorySignalFilter, StoryUpdateInput, ToolRegisterInput, TraceInput,
 };
 use crate::domain::{
     normalize_capability, parse_optional_integer, parse_tool_args, proof_display,
@@ -575,10 +574,7 @@ fn infra_exit_code(error: &crate::infrastructure::HarnessInfraError) -> i32 {
     use crate::infrastructure::HarnessInfraError as E;
     match error {
         // IO / database / internal failures.
-        E::Sqlite(_)
-        | E::Io(_)
-        | E::CorruptEventLog(_, _)
-        | E::MigrationVerifyFailed(_) => 3,
+        E::Sqlite(_) | E::Io(_) | E::CorruptEventLog(_, _) | E::MigrationVerifyFailed(_) => 3,
         // Everything else is a user-correctable validation / state error.
         _ => 2,
     }
@@ -1360,7 +1356,10 @@ fn print_info(report: &crate::infrastructure::InfoReport) {
     );
     println!("Event-log format: v{}", report.event_format_version);
     if !report.initialized {
-        println!("Database: absent at {} (run: harness-cli init)", report.db_path);
+        println!(
+            "Database: absent at {} (run: harness-cli init)",
+            report.db_path
+        );
         if report.event_files > 0 {
             println!(
                 "Event log: {} file(s) present, cache not yet built (any command rebuilds it)",
