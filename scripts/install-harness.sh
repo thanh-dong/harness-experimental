@@ -959,6 +959,9 @@ docs/templates/high-risk-story/design.md
 docs/templates/high-risk-story/execplan.md
 docs/templates/high-risk-story/overview.md
 docs/templates/high-risk-story/validation.md
+docs/templates/mcp/README.md
+docs/templates/mcp/TOOL_MAPPING.md
+docs/templates/mcp/session-context.md
 scripts/README.md
 scripts/calibrate-harness.sh
 scripts/schema/001-init.sql
