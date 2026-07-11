@@ -14,7 +14,7 @@ Update proof with `harness-cli story update`, never by editing this file.
 | US-030 | harness-dist-<version>.tar.gz release asset with all operating files, checksummed; offline install parity | yes | yes | no | no | implemented |  |
 | US-031 | manifest.json per release: versions, asset names, sha256s; CI-verified | yes | yes | no | no | implemented |  |
 | US-032 | JSON output flag on intake/story/decision/trace/backlog/query/tool-check with stable shapes and exit codes | yes | yes | no | no | implemented |  |
-| US-033 | No prompts/TTY assumptions on operator-called commands; CI headless matrix | no | no | no | no | planned |  |
-| US-034 | Deterministic install/merge-upgrade entry point with exit codes + JSON file summary; merge promise testable | no | no | no | no | planned |  |
-| US-035 | Gate/context template set referencing harness_* tool names; single owner for gate semantics | no | no | no | no | planned |  |
-| US-036 | harness-cli info command with JSON output: CLI/schema/migrations/log-format versions | no | no | no | no | planned |  |
+| US-033 | No prompts/TTY assumptions on operator-called commands; CI headless matrix | yes | yes | no | no | implemented |  |
+| US-034 | Deterministic install/merge-upgrade entry point with exit codes + JSON file summary; merge promise testable | yes | yes | no | no | implemented |  |
+| US-035 | Gate/context template set referencing harness_* tool names; single owner for gate semantics | yes | no | no | no | implemented |  |
+| US-036 | harness-cli info command with JSON output: CLI/schema/migrations/log-format versions | yes | no | no | no | implemented |  |
