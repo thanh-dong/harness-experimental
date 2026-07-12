@@ -11,7 +11,7 @@ normal
 ## Product Contract
 
 When a change request enters intake on the normal or high-risk lane, the agent
-runs a blast-radius impact analysis (GitNexus code graph + C3 component model +
+runs a blast-radius impact analysis (CodeGraph code graph + C3 component model +
 durable-layer feature join) whose output gates the risk flags, the validation
 re-run set, and the implementation reading list. Tiny-lane work skips it.
 Activation and presence come from the inbound tool registry (US-027): the agent
@@ -29,7 +29,7 @@ rather than trusting declared intent. Invalid or sparse tooling degrades visibly
 ## Acceptance Criteria
 
 - `docs/IMPACT_ANALYSIS.md` exists and defines: lane-gated trigger, the
-  gitnexus/c3 dependency set, the three-layer preflight (equipped/valid/live),
+  codegraph/c3 dependency set, the three-layer preflight (equipped/valid/live),
   the file-path join pipeline, the coverage signal, and the three gated
   decisions.
 - `docs/FEATURE_INTAKE.md` references the impact analysis step for normal and
@@ -43,14 +43,15 @@ rather than trusting declared intent. Invalid or sparse tooling degrades visibly
   and sets `Weak proof`.
 - The empty-join rule is explicit: no feature impact data is reported as
   UNKNOWN with the `Weak proof` flag, never as "no features affected".
-- Provider kinds are marked (`mcp` for gitnexus, `skill` for c3) so a
-  non-Claude agent treats a skill it cannot run as absent and degrades.
+- Provider kinds are marked (`cli` for codegraph, `skill` for c3) so a
+  non-Claude agent treats a skill it cannot run as absent and degrades; a
+  `cli` provider needs no agent session and works in headless runners.
 
 ## Design Notes
 
 - Commands: `query tools --capability impact-analysis`, `tool check` (both
   from US-027); registration seed lives in `docs/TOOL_REGISTRY.md`.
-- Queries: agent-side `mcp__gitnexus__impact` / `detect_changes`; `c3-audit`.
+- Queries: agent-side `codegraph impact` / `codegraph affected`; `c3-audit`.
 - Tables: no schema changes in this story; consumes US-027's `tool.kind`,
   `tool.capability`, `tool.scan_target`, `tool.status`, and reuses
   `trace.files_changed`, `trace.story_id`, `story.contract_doc`.
@@ -81,7 +82,9 @@ When updating durable proof status, use numeric booleans:
 - `docs/FEATURE_INTAKE.md` gains an impact analysis step for normal/high-risk,
   keyed on the `impact-analysis` capability and `tool check`.
 - `docs/templates/story.md` documents the valid durable story statuses.
-- Tool registry seed for gitnexus and c3 lives in `docs/TOOL_REGISTRY.md`.
+- Tool registry seed for codegraph and c3 lives in `docs/TOOL_REGISTRY.md`.
+- Provider swap gitnexus -> codegraph recorded in decision 0011 (pipeline
+  worktree compatibility).
 - Follow-up: Backlog proposes `harness-cli impact preflight` for mechanical
   mode detection once friction is recorded.
 

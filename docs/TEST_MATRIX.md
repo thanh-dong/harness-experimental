@@ -6,6 +6,7 @@ Update proof with `harness-cli story update`, never by editing this file.
 
 | Story | Contract | Unit | Integration | E2E | Platform | Status | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| US-026 | Blast-radius plugin: lane-gated impact analysis at intake | no | no | no | no | implemented | docs/stories/epics/E04-impact-analysis/US-026-blast-radius-plugin.md; provider set updated to codegraph+c3 per decision 0011 |
 | US-027 | docs/stories/US-027-implementation-note-signals/overview.md | yes | yes | yes | no | implemented |  |
 | US-028 | docs/stories/epics/E05-event-log-durable-layer/US-028-event-log-durable-layer.md | no | no | no | no | planned |  |
 | US-028a | docs/stories/epics/E05-event-log-durable-layer/US-028a-shadow-mode/US-028a-shadow-mode.md | yes | yes | no | no | implemented | cargo test -p harness-cli: 40 passed (12 events/rebuild tests); real-log rebuild deterministic (dump 992b6d499764942f twice); calibration 16 checks; verify-all 2 pass 0 fail; CI runs cargo test --workspace (harness-cli-release.yml) |

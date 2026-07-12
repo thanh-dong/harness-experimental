@@ -10,3 +10,4 @@ Add decisions with `harness-cli decision add` (doc from `docs/templates/decision
 | 0008 | US-028 goal-loop frame ratification | accepted | docs/decisions/0008-us-028-goal-loop-frame.md |
 | 0009 | Event log becomes the durable source of truth | accepted | docs/decisions/0009-event-log-source-of-truth.md |
 | 0010 | Shuttle consumption contract (E-shuttle-readiness) | accepted |  |
+| 0011 | CodeGraph replaces GitNexus as the code-graph impact provider | accepted | docs/decisions/0011-codegraph-impact-provider.md |

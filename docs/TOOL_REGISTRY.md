@@ -5,7 +5,7 @@ The harness deals with two distinct kinds of "tool". Keep them separate.
 | | Capability manifest (outbound) | Inbound tool registry |
 | --- | --- | --- |
 | Direction | harness offers it to the agent | a project equips it for the harness to use |
-| Examples | the `harness-cli` subcommands below | gitnexus, c3, a linter, a deploy check |
+| Examples | the `harness-cli` subcommands below | codegraph, c3, a linter, a deploy check |
 | Presence | always compiled in | optional; may be absent on any machine |
 | If missing | n/a (it is the harness) | clean skip; never blocks the main process |
 
@@ -46,12 +46,12 @@ absent on the current machine. `mcp`/`skill`/`http` are not on `PATH` by nature,
 so they register without `--force`; their presence is resolved later by
 `tool check`.
 
-Registering an MCP server or a Claude skill (examples):
+Registering a CLI tool or a Claude skill (examples):
 
 ```bash
-scripts/bin/harness-cli tool register --name gitnexus --kind mcp \
-  --capability impact-analysis --scan ".gitnexus" --command "mcp:gitnexus" \
-  --description "Code-graph blast radius" --responsibility Verification
+scripts/bin/harness-cli tool register --name codegraph --kind cli \
+  --capability impact-analysis --scan ".codegraph" --command "codegraph" \
+  --description "Code-graph blast radius and affected tests" --responsibility Verification
 scripts/bin/harness-cli tool register --name c3 --kind skill \
   --capability impact-analysis --scan ".c3" --command "skill:c3" \
   --description "Component model and drift audit (Claude skill)" \
@@ -110,7 +110,7 @@ scripts/bin/harness-cli query tools --capability impact-analysis --status presen
 ```
 
 The result is the set of providers. Multiple tools may provide one capability
-(gitnexus and c3 both serve `impact-analysis` and are complementary), so a step
+(codegraph and c3 both serve `impact-analysis` and are complementary), so a step
 reads the set and degrades on how much of it is present.
 
 ### Degrade Ladder

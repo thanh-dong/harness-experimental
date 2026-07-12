@@ -45,8 +45,10 @@ a false `missing`. Re-run a line with `--force` to update an existing entry.
 H=scripts/bin/harness-cli
 
 # impact-analysis — blast radius before edits (docs/IMPACT_ANALYSIS.md)
-[ -d .gitnexus ] && "$H" tool register --name gitnexus --kind mcp --capability impact-analysis \
-  --scan ".gitnexus" --command "mcp:gitnexus" \
+# .codegraph is machine-local (gitignored); on a fresh clone/worktree run
+# `codegraph init` first (seconds), then register.
+command -v codegraph >/dev/null 2>&1 && "$H" tool register --name codegraph --kind cli --capability impact-analysis \
+  --scan ".codegraph" --command "codegraph" \
   --description "Code-graph blast radius for impact analysis" --responsibility Verification
 [ -d .c3 ] && "$H" tool register --name c3 --kind skill --capability impact-analysis \
   --scan ".c3" --command "skill:c3" \
