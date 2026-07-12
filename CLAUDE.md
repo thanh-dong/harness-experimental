@@ -1,5 +1,10 @@
 # Project Rules
 
+## Subagents
+
+Use Fable subagents (`model: "fable"` on the Agent tool) when you need more
+intelligence — e.g. hard debugging, architecture, or verification steps.
+
 ## Working Together Through The Event Log
 
 Durable harness state (intake, stories, decisions, backlog, traces,
