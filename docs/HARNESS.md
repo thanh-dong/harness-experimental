@@ -119,7 +119,7 @@ scripts/bin/harness-cli story   update --id <id> --unit 1 --integration 1 --e2e 
 scripts/bin/harness-cli story   verify <id>
 scripts/bin/harness-cli story   verify-all
 scripts/bin/harness-cli decision add --id <id> --title <text> --doc docs/decisions/<file>.md
-scripts/bin/harness-cli trace   --summary <text> --outcome <outcome>
+scripts/bin/harness-cli trace   --summary <text> --outcome <completed|blocked|partial|failed>
 scripts/bin/harness-cli score-trace
 scripts/bin/harness-cli score-context <trace-id>
 scripts/bin/harness-cli audit
@@ -270,6 +270,10 @@ scripts/bin/harness-cli story verify US-012
 
 `story verify` runs the command from the repository root, records
 `last_verified_at` and `last_verified_result`, and exits 0 on pass or 1 on fail.
+Before running the command it checks the story's change diagrams
+(`docs/DIAGRAMS.md`): any `docs/**/diagrams/D<n>-*.md` naming the story with a
+`Status:` other than `reviewed` fails the verification without running the
+command.
 When `trace --story <id>` links to a story whose verification command has never
 passed, the trace still records but prints an advisory warning before close.
 

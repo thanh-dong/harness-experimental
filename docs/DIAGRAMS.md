@@ -251,6 +251,14 @@ review's job.
 Run it as part of `story verify` for any story that carries diagrams, and
 before merge alongside `story verify-all`.
 
+`story verify <id>` and `story verify-all` also enforce the review gate
+themselves: before running a story's `verify_command`, the CLI scans
+`docs/**/diagrams/D<n>-*.md` for files whose `Story:` names that story, and if
+any has a `Status:` other than `reviewed` the verification fails without
+running the command, records `last_verified_result = fail`, and lists each
+offending file with its status. A drawn diagram is therefore reviewed or
+deleted — there is no third option at done.
+
 ## Drift
 
 A `reviewed` diagram that no longer matches code is a harness signal, not just

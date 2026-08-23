@@ -20,3 +20,4 @@ Update proof with `harness-cli story update`, never by editing this file.
 | US-035 | Gate/context template set referencing harness_* tool names; single owner for gate semantics | yes | no | no | no | implemented |  |
 | US-036 | harness-cli info command with JSON output: CLI/schema/migrations/log-format versions | yes | no | no | no | implemented |  |
 | US-037 | docs/DIAGRAMS.md | yes | yes | no | no | implemented | check-diagrams.sh 9 ok; lint-mcp-templates PASS |
+| US-038 | story verify fails on unreviewed change diagrams | yes | yes | yes | no | in_progress | cargo test 69 pass; live gate fail on draft D3, pass on US-037 |

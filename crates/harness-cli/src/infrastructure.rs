@@ -1128,6 +1128,21 @@ impl HarnessRepository for SqliteHarnessRepository {
             .filter(|value| !value.is_empty())
             .ok_or_else(|| HarnessInfraError::MissingStoryVerifyCommand(id.to_owned()))?;
 
+        let unreviewed = unreviewed_diagrams(&self.repo_root, id);
+        if !unreviewed.is_empty() {
+            self.append_and_apply(
+                &connection,
+                "story.verify_result",
+                json!({"id": id, "result": "fail"}),
+            )?;
+            return Ok(StoryVerifyResult {
+                command: verify_command,
+                stdout: String::new(),
+                stderr: diagram_gate_message(id, &unreviewed),
+                result: "fail".to_owned(),
+            });
+        }
+
         let (shell, flag) = verifier_shell();
         let output = Command::new(shell)
             .arg(flag)
@@ -1180,6 +1195,25 @@ impl HarnessRepository for SqliteHarnessRepository {
                 });
                 continue;
             };
+
+            let unreviewed = unreviewed_diagrams(&self.repo_root, &id);
+            if !unreviewed.is_empty() {
+                self.append_and_apply(
+                    &connection,
+                    "story.verify_result",
+                    json!({"id": id, "result": "fail"}),
+                )?;
+                let stderr = diagram_gate_message(&id, &unreviewed);
+                items.push(StoryVerifyAllItem {
+                    id,
+                    title,
+                    command: Some(command),
+                    result: "fail".to_owned(),
+                    stdout: String::new(),
+                    stderr,
+                });
+                continue;
+            }
 
             let (shell, flag) = verifier_shell();
             let output = Command::new(shell)
@@ -2631,6 +2665,86 @@ fn short_title(value: &str) -> String {
     }
 }
 
+/// Change diagrams (`docs/DIAGRAMS.md`) under `docs/**/diagrams/D<n>-*.md`
+/// whose `Story:` header names `story_id` and whose `Status:` is not
+/// `reviewed`. Returned as `"<relative path> (<status>)"`, sorted. A story
+/// with such a diagram fails `story verify` before its command runs: a drawn
+/// but unreviewed (or stale) diagram is an unmet done gate, not a warning.
+pub fn unreviewed_diagrams(repo_root: &Path, story_id: &str) -> Vec<String> {
+    fn walk(dir: &Path, story_id: &str, out: &mut Vec<(PathBuf, String)>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, story_id, out);
+                continue;
+            }
+            let in_diagrams_dir = path
+                .parent()
+                .and_then(|parent| parent.file_name())
+                .is_some_and(|name| name == "diagrams");
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
+            let is_diagram = name.len() > 3
+                && name.starts_with('D')
+                && name.as_bytes()[1].is_ascii_digit()
+                && name.as_bytes()[2] == b'-'
+                && name.ends_with(".md");
+            if !(in_diagrams_dir && is_diagram) {
+                continue;
+            }
+            let Ok(text) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let field = |key: &str| {
+                text.lines()
+                    .find_map(|line| line.strip_prefix(key))
+                    .map(|value| value.trim().to_owned())
+            };
+            if field("Story:").as_deref() != Some(story_id) {
+                continue;
+            }
+            let status = field("Status:").unwrap_or_else(|| "missing".to_owned());
+            if status != "reviewed" {
+                out.push((path, status));
+            }
+        }
+    }
+
+    let mut found = Vec::new();
+    walk(&repo_root.join("docs"), story_id, &mut found);
+    found.sort();
+    found
+        .into_iter()
+        .map(|(path, status)| {
+            let relative = path
+                .strip_prefix(repo_root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            format!("{relative} ({status})")
+        })
+        .collect()
+}
+
+fn diagram_gate_message(story_id: &str, unreviewed: &[String]) -> String {
+    let mut message =
+        format!("story {story_id} has change diagrams that are not reviewed (docs/DIAGRAMS.md):\n");
+    for item in unreviewed {
+        message.push_str("  - ");
+        message.push_str(item);
+        message.push('\n');
+    }
+    message.push_str(
+        "Review each (Status: reviewed + harness-cli intervention add --type review) before verifying.\n",
+    );
+    message
+}
+
 fn verifier_shell() -> (&'static str, &'static str) {
     if cfg!(windows) {
         ("cmd", "/C")
@@ -3747,6 +3861,121 @@ mod tests {
             real_repo_root().join("scripts/schema"),
         );
         (temp_dir, repository)
+    }
+
+    fn write_diagram(repo_root: &Path, rel: &str, story: &str, status: &str) {
+        let path = repo_root.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            path,
+            format!(
+                "# D3 Sequence — {story}\n\nStory: {story}\nKind: sequence\nSource: hand\nScope: x\nStatus: {status}\nReviewed-by: -\nReviewed-at: -\n\n```mermaid\nsequenceDiagram\n```\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn unreviewed_diagrams_finds_only_matching_story_and_non_reviewed_status() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+        write_diagram(root, "docs/stories/a/diagrams/D3-flow.md", "US-1", "draft");
+        write_diagram(root, "docs/stories/a/diagrams/D4-state.md", "US-1", "stale");
+        write_diagram(
+            root,
+            "docs/stories/a/diagrams/D5-data.md",
+            "US-1",
+            "reviewed",
+        );
+        write_diagram(root, "docs/stories/b/diagrams/D3-flow.md", "US-2", "draft");
+        write_diagram(
+            root,
+            "docs/stories/a/notes/D3-not-a-diagram.md",
+            "US-1",
+            "draft",
+        );
+        write_diagram(
+            root,
+            "docs/templates/diagrams/D3-sequence.md",
+            "US-XXX",
+            "draft",
+        );
+
+        assert_eq!(
+            unreviewed_diagrams(root, "US-1"),
+            vec![
+                "docs/stories/a/diagrams/D3-flow.md (draft)".to_owned(),
+                "docs/stories/a/diagrams/D4-state.md (stale)".to_owned(),
+            ]
+        );
+        assert!(unreviewed_diagrams(root, "US-3").is_empty());
+        assert!(unreviewed_diagrams(root, "US-XXX").len() == 1);
+    }
+
+    #[test]
+    fn story_verify_fails_on_unreviewed_diagram_without_running_command() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let repo_root = temp_dir.path().join("repo");
+        fs::create_dir_all(&repo_root).unwrap();
+        let repository = SqliteHarnessRepository::new(
+            repo_root.clone(),
+            temp_dir.path().join("harness.db"),
+            real_repo_root().join("scripts/schema"),
+        );
+        repository.init().unwrap();
+        let marker = repo_root.join("ran.txt");
+        let verify_command = if cfg!(windows) {
+            "echo ran > ran.txt".to_owned()
+        } else {
+            "touch ran.txt".to_owned()
+        };
+        repository
+            .add_story(StoryAddInput {
+                id: "US-D".to_owned(),
+                title: "Diagram gated".to_owned(),
+                risk_lane: RiskLane::Normal,
+                contract_doc: None,
+                verify_command: Some(verify_command),
+                notes: None,
+            })
+            .unwrap();
+        write_diagram(
+            &repo_root,
+            "docs/stories/d/diagrams/D3-flow.md",
+            "US-D",
+            "draft",
+        );
+
+        let gated = repository.verify_story("US-D").unwrap();
+        assert_eq!(gated.result, "fail");
+        assert!(gated
+            .stderr
+            .contains("docs/stories/d/diagrams/D3-flow.md (draft)"));
+        assert!(
+            !marker.exists(),
+            "verify_command must not run while a diagram is unreviewed"
+        );
+        assert_eq!(
+            repository
+                .story_verify_status("US-D")
+                .unwrap()
+                .last_verified_result
+                .as_deref(),
+            Some("fail")
+        );
+        let all = repository.verify_all_stories().unwrap();
+        assert_eq!(all.items[0].result, "fail");
+        assert!(all.items[0].stderr.contains("not reviewed"));
+
+        write_diagram(
+            &repo_root,
+            "docs/stories/d/diagrams/D3-flow.md",
+            "US-D",
+            "reviewed",
+        );
+        let passed = repository.verify_story("US-D").unwrap();
+        assert_eq!(passed.result, "pass");
+        assert!(marker.exists());
     }
 
     fn story_columns(connection: &Connection) -> Vec<String> {

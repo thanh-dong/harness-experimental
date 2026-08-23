@@ -4,9 +4,9 @@ Story: US-037
 Kind: sequence
 Source: hand
 Scope: intake flags → diagram files → human review → intervention record → done gate
-Status: draft
-Reviewed-by: -
-Reviewed-at: -
+Status: reviewed
+Reviewed-by: human:thanh-dong
+Reviewed-at: 2026-08-23
 
 ```mermaid
 sequenceDiagram

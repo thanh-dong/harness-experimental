@@ -956,6 +956,7 @@ docs/templates/decision.md
 docs/templates/spec-intake.md
 docs/templates/story.md
 docs/templates/validation-report.md
+docs/templates/implementation-notes.html
 docs/templates/diagrams/README.md
 docs/templates/diagrams/D1-blast-radius.md
 docs/templates/diagrams/D2-component-delta.md

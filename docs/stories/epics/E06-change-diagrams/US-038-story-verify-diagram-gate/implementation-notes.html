@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Implementation notes — US-038 story verify diagram gate</title>
+<style>
+  body { font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2430; max-width: 860px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.4rem; border-bottom: 2px solid #e3e6ec; padding-bottom: .4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; color: #2c3550; }
+  code { background: #f1f3f7; padding: .1em .35em; border-radius: 4px; font-size: .9em; }
+  pre { background: #f6f8fa; border: 1px solid #e3e6ec; border-radius: 6px; padding: .8rem 1rem; overflow-x: auto; font-size: .85em; }
+  table { border-collapse: collapse; width: 100%; margin: .8rem 0; }
+  th, td { border: 1px solid #dadfe8; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #f1f3f7; }
+  .signal { display: inline-block; font-size: .75em; font-weight: 600; padding: .1em .5em; border-radius: 999px; background: #e8f0fe; color: #1a56db; margin-right: .4em; }
+</style>
+</head>
+<body>
+<h1>Implementation notes — US-038 story verify diagram gate</h1>
+<p>
+Story: <code>docs/stories/epics/E06-change-diagrams/US-038-story-verify-diagram-gate/US-038-story-verify-diagram-gate.md</code> ·
+Decision: <code>docs/decisions/0012-change-diagrams-as-review-artifacts.md</code> (follow-up item) ·
+Intake: <code>01M0PYDZ8BCYE30YJ0K2H86N8K</code> (normal; Existing behavior, Public contracts) ·
+Diagrams: <code>diagrams/D3-verify-gate.md</code>
+</p>
+
+<h2><span class="signal">design decision</span> Design decisions</h2>
+<table>
+<tr><th>Choice</th><th>Rejected alternative</th><th>Why</th></tr>
+<tr><td>Gate on <em>any</em> diagram file naming the story that is not <code>reviewed</code></td><td>Gate only on flag-required diagrams</td><td>The CLI does not know the intake flags per story reliably; "if you drew it, it is reviewed or deleted" is simpler and stricter, with no configurability.</td></tr>
+<tr><td>Filesystem scan of <code>docs/**/diagrams/D&lt;n&gt;-*.md</code> keyed on the <code>Story:</code> header</td><td>A diagram table / <code>--diagrams</code> field on <code>story add</code></td><td>No schema, no event format change, no extra bookkeeping; the file header is already the readable source of status per DIAGRAMS.md.</td></tr>
+<tr><td>Record a <code>story.verify_result</code> fail event when gated</td><td>Return fail without recording</td><td><code>last_verified_result</code> must not claim a pass that never ran; traces that link the story get the existing advisory warning for free.</td></tr>
+<tr><td>Gate only when a <code>verify_command</code> exists</td><td>Gate stories without a command too</td><td>Keeps the existing "no verify_command" error path unchanged; stories without commands are already skipped by <code>verify-all</code>.</td></tr>
+</table>
+
+<h2><span class="signal">deviation</span> Deviations</h2>
+<ul>
+<li>None from the plan. The local binary at <code>scripts/bin/harness-cli</code> was rebuilt from source (0.1.15) so the gate could be proven live; the published release asset still needs the <code>harness-cli-v0.1.15</code> tag pushed (US-025 flow), which is an outward-facing action left to the human.</li>
+</ul>
+
+<h2><span class="signal">tradeoff</span> Tradeoffs &amp; accepted limits</h2>
+<ul>
+<li>The scan walks all of <code>docs/</code> on every verify; on this repo that is milliseconds. A very large docs tree could make <code>verify-all</code> noticeably slower — acceptable until observed.</li>
+<li>Header parsing is line-prefix based, matching <code>scripts/check-diagrams.sh</code>; a malformed header counts as <code>missing</code> status and gates (fail-closed).</li>
+</ul>
+
+<h2><span class="signal">open question</span> Open questions</h2>
+<ul>
+<li>This story's own <code>D3-verify-gate.md</code> is <code>draft</code> and awaits a human review — by design, <code>story verify US-038</code> fails until then (live evidence below). Recommendation: review it; the gate then passes and the story can be marked done.</li>
+</ul>
+
+<h2>Live evidence</h2>
+<pre>$ scripts/bin/harness-cli story verify US-038
+Running: cargo test -p harness-cli --quiet
+story US-038 has change diagrams that are not reviewed (docs/DIAGRAMS.md):
+  - docs/stories/epics/E06-change-diagrams/US-038-story-verify-diagram-gate/diagrams/D3-verify-gate.md (draft)
+Review each (Status: reviewed + harness-cli intervention add --type review) before verifying.
+Story US-038 verification: fail
+
+$ scripts/bin/harness-cli story verify US-037      # both diagrams reviewed
+Story US-037 verification: pass
+
+$ cargo test -p harness-cli
+69 passed, 1 ignored</pre>
+</body>
+</html>

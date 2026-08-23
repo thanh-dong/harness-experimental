@@ -59,8 +59,8 @@ diagram that is missing or `stale` blocks done.
 | Diagram | File | Status | Reviewed at |
 | --- | --- | --- | --- |
 | D1 blast radius | — | not required: `impact-analysis` capability inactive on this clone | — |
-| D3 sequence | `diagrams/D3-diagram-review-flow.md` | draft | design review |
-| D4 state | `diagrams/D4-diagram-status.md` | draft | design review |
+| D3 sequence | `diagrams/D3-diagram-review-flow.md` | reviewed (human:thanh-dong, 2026-08-23) | design review |
+| D4 state | `diagrams/D4-diagram-status.md` | reviewed (human:thanh-dong, 2026-08-23) | design review |
 
 ## References
 

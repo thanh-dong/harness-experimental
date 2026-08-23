@@ -4,9 +4,9 @@ Story: US-037
 Kind: state
 Source: hand
 Scope: the Status field of a change-diagram file
-Status: draft
-Reviewed-by: -
-Reviewed-at: -
+Status: reviewed
+Reviewed-by: human:thanh-dong
+Reviewed-at: 2026-08-23
 
 ```mermaid
 stateDiagram-v2
