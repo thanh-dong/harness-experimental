@@ -82,10 +82,11 @@ In this repo, those answers live in:
 | `docs/HARNESS.md` | The human–agent collaboration model. |
 | `docs/FEATURE_INTAKE.md` | Tiny, normal, and high-risk work classification. |
 | `docs/ARCHITECTURE.md` | Architecture discovery and boundary rules. |
+| `docs/DIAGRAMS.md` | Change diagrams: flag-selected Mermaid files per story, reviewed by a human at intake and design review. |
 | `docs/TEST_MATRIX.md` | Behavior-to-proof validation expectations. |
 | `docs/stories/` | Story packets and backlog items. |
 | `docs/decisions/` | Durable decisions and tradeoffs. |
-| `docs/templates/` | Reusable spec, story, decision, and validation templates. |
+| `docs/templates/` | Reusable spec, story, decision, validation, and change-diagram templates. |
 
 OpenAI describes this shift as an agent-first world where humans steer and agents
 execute → <https://openai.com/index/harness-engineering/>

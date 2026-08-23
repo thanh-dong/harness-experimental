@@ -34,6 +34,16 @@ Describe the behavior this story must make true.
 - Domain rules:
 - UI surfaces:
 
+## Change Diagrams
+
+Required by lane and flags (`docs/DIAGRAMS.md`); files live in
+`<packet>/diagrams/`. List each with its status, or write `none required`.
+
+| Diagram | File | Status | Reviewed at |
+| --- | --- | --- | --- |
+| D1 blast radius | `diagrams/D1-....md` | draft | intake checkpoint |
+| D3 sequence | `diagrams/D3-....md` | draft | design review |
+
 ## References
 
 Source code that already implements the wanted behavior or semantics — the best

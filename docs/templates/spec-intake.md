@@ -52,6 +52,12 @@ What proof will this project eventually need?
 | Platform | |
 | Release | |
 
+## Story DAG
+
+`diagrams/D6-<slug>.md` next to this file (`docs/templates/diagrams/D6-story-dag.md`):
+the candidate epics and first stories with their dependencies, reviewed by the
+human at the intake checkpoint before any story packet is created.
+
 ## Open Decisions
 
 - Item.

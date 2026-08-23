@@ -62,6 +62,7 @@ Harness v0 includes:
 - Empty product documentation structure.
 - Feature intake and risk lanes.
 - Story templates.
+- Change diagram templates and lint (`docs/DIAGRAMS.md`).
 - Decision log template.
 - Validation report template.
 - Test matrix placeholder.
@@ -358,6 +359,8 @@ Agents may update directly:
 - Test matrix rows via `scripts/bin/harness-cli story add` and
   `scripts/bin/harness-cli story update`.
 - Links from story packets to product docs.
+- Change diagrams in `draft` or `stale` status; flipping one to `reviewed`
+  needs the reviewer's intervention record.
 - Validation notes and reports.
 - Small clarifications tied to the current task.
 - Intake records, traces, and backlog items via `scripts/bin/harness-cli`.
@@ -376,6 +379,9 @@ A task is done only when:
 
 - The requested change is completed or the blocker is documented.
 - Relevant docs, stories, and test matrix entries remain current.
+- Every change diagram the lane and flags require exists under
+  `<packet>/diagrams/`, passes `bash scripts/check-diagrams.sh`, is
+  `reviewed`, and matches shipped code (`docs/DIAGRAMS.md`).
 - Validation commands were run when they exist.
 - A trace has been recorded with `scripts/bin/harness-cli trace`.
 - Missing harness capabilities were recorded with

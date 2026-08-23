@@ -39,6 +39,10 @@ Run risk checklist
     |
     v
 Choose lane: tiny, normal, or high-risk
+    |
+    v
+Select required change diagrams
+from the lane and flags
 ```
 
 ## Input Types
@@ -112,6 +116,9 @@ Requirements:
   `scripts/bin/harness-cli story update`.
 - Keep a running `implementation-notes.html` in the story packet folder (see
   [Implementation Notes](#implementation-notes)).
+- Add the change diagrams the lane and flags require under
+  `<packet>/diagrams/` and get them reviewed at their stage (see
+  [Change Diagrams](#change-diagrams)).
 
 ### High-Risk
 
@@ -131,6 +138,9 @@ Requirements:
 - Keep a running `implementation-notes.html` alongside `execplan.md` /
   `overview.md` / `design.md` / `validation.md` (see
   [Implementation Notes](#implementation-notes)).
+- Add D1, D2, D3 and every flag-required change diagram under
+  `<packet>/diagrams/`; each must be reviewed by a human at design review
+  before implementation code (see [Change Diagrams](#change-diagrams)).
 - Do not accept high-risk work on the implementing agent's word alone. Require one
   independent check before done: a deterministic proof (`story verify` /
   `verify-all` / a passing test), or a second reviewer — human or a different
@@ -183,6 +193,49 @@ If the note is missing or stale when you are about to declare done, stop,
 backfill it, and say in one sentence that the gate was missed. A missing
 implementation note is an incomplete story, not a documentation nicety.
 
+## Change Diagrams
+
+Normal and high-risk work carries **change diagrams**: separate Mermaid files
+under `<packet>/diagrams/D<n>-<slug>.md`, one per diagram, each with its own
+review status. They show what the change does to the system — never the whole
+system — so a human can approve scope, direction, behavior, data, and
+boundaries at the stage where each is decided, and the implementing agent can
+derive tests, re-run sets, migrations, and file placement from them
+mechanically. Full standard, notation, review stages, and lint:
+`docs/DIAGRAMS.md`. Templates: `docs/templates/diagrams/`.
+
+The risk flags select the diagrams; the human does not pick them:
+
+| Lane / flag | Required diagrams |
+| --- | --- |
+| Tiny | None. Wanting one means the work is not tiny — re-run the gate. |
+| Normal | D1 blast radius when `impact-analysis` is active; D3 sequence when the story crosses more than one component. |
+| High-risk | D1 blast radius, D2 component delta, D3 sequence — always. |
+| `Data model` | D5 data-model delta. |
+| Introduces or alters a status set | D4 state. |
+| `External systems` or `Cross-platform` | D7 boundary. |
+| New spec, new initiative, goal loop | D6 story DAG. |
+
+Review stages — each is a point where the human already has the last word:
+
+| Stage | Diagrams | Reviewer |
+| --- | --- | --- |
+| Intake checkpoint, before lane and scope freeze | D1, D6 | Human |
+| Design review, after the packet exists and before implementation code | D2, D5, D7 (direction, data, boundaries); D3, D4 (behavior) | Human on high-risk; human or second agent on normal |
+| Done gate, before `story update --status implemented` | every diagram in the packet must match shipped code | The independent check (verify, CI, or second reviewer) |
+
+A review is recorded in two places: `Status: reviewed` with `Reviewed-by` /
+`Reviewed-at` in the file, and
+`scripts/bin/harness-cli intervention add --story <id> --type review --source <human|agent|ci> --description "D<n> reviewed: …"`.
+A diagram whose subject changes after review is flipped to `Status: stale` in
+the same commit and re-reviewed. `bash scripts/check-diagrams.sh` lints every
+diagram file's structure; add it to the story's `--verify` command.
+
+**Done gate (normal and high-risk).** A story is not done until every required
+diagram exists, passes `scripts/check-diagrams.sh`, is `reviewed`, and matches
+the shipped code. A missing or `stale` required diagram is an incomplete story,
+exactly like a missing `implementation-notes.html`.
+
 ## Impact Analysis
 
 On normal and high-risk work, when the `impact-analysis` capability has a
@@ -192,7 +245,9 @@ with `scripts/bin/harness-cli query tools --capability impact-analysis`, and run
 `scripts/bin/harness-cli tool check` at intake start so provider presence is a
 scanned fact rather than a trusted declaration. Its output feeds the
 `Existing behavior`, `Multi-domain`, and `Public contracts` flags, the
-validation re-run set, and the implementation reading list. Tiny-lane work skips
+validation re-run set, and the implementation reading list, and is rendered as
+the D1 blast-radius diagram (`docs/DIAGRAMS.md`) for the human to approve at
+the intake checkpoint. Tiny-lane work skips
 it. When no provider is registered, the capability is inactive: skip the step
 and note the skip in the trace. A registered provider that scans as missing,
 stale, or drifted is not a skip: degrade per the Degraded Modes table in
@@ -267,5 +322,6 @@ Lane: normal
 Reason: touches authorization, API contract, and audit behavior.
 Docs: permissions, account-settings, audit-log.
 Story: docs/stories/epics/E02-access-control/US-014-manager-updates-role.md.
+Diagrams: D1 blast radius, D3 sequence (reviewed at design review).
 Validation: unit, integration, E2E.
 ```

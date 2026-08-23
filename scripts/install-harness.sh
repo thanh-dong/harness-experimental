@@ -940,6 +940,7 @@ docs/SETUP.md
 docs/TEST_MATRIX.md
 docs/TOOL_REGISTRY.md
 docs/TRACE_SPEC.md
+docs/DIAGRAMS.md
 docs/decisions/0001-harness-first-development.md
 docs/decisions/0002-post-spec-product-lifecycle.md
 docs/decisions/0003-generic-spec-intake-harness.md
@@ -955,6 +956,14 @@ docs/templates/decision.md
 docs/templates/spec-intake.md
 docs/templates/story.md
 docs/templates/validation-report.md
+docs/templates/diagrams/README.md
+docs/templates/diagrams/D1-blast-radius.md
+docs/templates/diagrams/D2-component-delta.md
+docs/templates/diagrams/D3-sequence.md
+docs/templates/diagrams/D4-state.md
+docs/templates/diagrams/D5-data-model.md
+docs/templates/diagrams/D6-story-dag.md
+docs/templates/diagrams/D7-boundary.md
 docs/templates/high-risk-story/design.md
 docs/templates/high-risk-story/execplan.md
 docs/templates/high-risk-story/overview.md
@@ -964,6 +973,7 @@ docs/templates/mcp/TOOL_MAPPING.md
 docs/templates/mcp/session-context.md
 scripts/README.md
 scripts/calibrate-harness.sh
+scripts/check-diagrams.sh
 scripts/schema/001-init.sql
 scripts/schema/002-story-verify.sql
 scripts/schema/003-tool-registry.sql

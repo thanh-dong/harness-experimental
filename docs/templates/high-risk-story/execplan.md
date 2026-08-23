@@ -27,8 +27,9 @@ Hard gates:
 ## Work Phases
 
 1. Discovery.
-2. Design.
-3. Validation planning.
+2. Design — change diagrams drafted and reviewed by a human
+   (`docs/DIAGRAMS.md`).
+3. Validation planning — derived from the reviewed D3/D4/D5/D7 diagrams.
 4. Implementation.
 5. Verification.
 6. Harness update.
@@ -41,4 +42,5 @@ Pause for human confirmation if:
 - Data migration or deletion risk appears.
 - Validation requirements need to be weakened.
 - Architecture direction changes.
+- A reviewed change diagram has to be flipped to `stale`.
 

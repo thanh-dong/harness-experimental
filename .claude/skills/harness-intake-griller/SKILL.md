@@ -143,12 +143,18 @@ For normal work:
 - update or reference relevant product docs
 - define validation expectations
 - add or update the durable story row
+- draft the change diagrams the flags require under `<packet>/diagrams/`
+  (`docs/DIAGRAMS.md`); present D1 at the shared-understanding checkpoint so
+  the user approves scope from it, not from prose
 
 For high-risk work:
 
 - require a confirmed shared understanding checkpoint first
 - use the repo's high-risk story template
 - document design, validation, and pause points
+- draft D1, D2, D3 and every flag-required change diagram; stop at design
+  review until a human marks each `reviewed` (recorded with
+  `harness-cli intervention add --type review --source human`)
 - ask for human confirmation before implementation if direction remains ambiguous
 - record durable decisions when behavior, architecture, data ownership, API shape, authorization, or validation requirements change meaningfully
 
@@ -189,6 +195,7 @@ Harness intake:
 - Affected docs:
 - Stories:
 - Validation:
+- Diagrams: <D<n> file — status — review stage>
 
 Implementation handoff:
 - Ready story:

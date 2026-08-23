@@ -62,12 +62,16 @@ narrows scope. Record the classification with the **`harness_intake`** tool
   intake row with `harness_intake`.
 - **Normal** — one story from `docs/templates/story.md`, recorded with
   **`harness_story_add`** (`id`, `title`, `lane`), plus planned
-  `docs/TEST_MATRIX.md` rows.
+  `docs/TEST_MATRIX.md` rows; the change diagrams the flags require under
+  `<packet>/diagrams/` (`docs/DIAGRAMS.md`), reviewed at their stage.
 - **High-risk** — a folder from `docs/templates/high-risk-story/` with
   `execplan.md`, `overview.md`, `design.md`, `validation.md` all filled in; a
   decision via **`harness_decision_add`** (`id`, `title`, `doc`) plus a
   `docs/decisions/NNNN-*.md` file; `docs/TEST_MATRIX.md` rows; and
-  `docs/stories/backlog.md` updated.
+  `docs/stories/backlog.md` updated; D1, D2, D3 and every flag-required change
+  diagram under `<packet>/diagrams/`, each `reviewed` by a human at design
+  review and recorded with **`harness_intervention_add`** (`type: "review"`,
+  `source: "human"`, `story`, `description`).
 
 ### Required before declaring done
 
@@ -75,6 +79,8 @@ narrows scope. Record the classification with the **`harness_intake`** tool
   in_progress → implemented, or blocker noted), including the proof flags
   `unit`/`integration`/`e2e`/`platform` as numeric booleans (`1`/`0`).
 - `docs/TEST_MATRIX.md` rows current, and validation commands were actually run.
+- Every required change diagram passes `scripts/check-diagrams.sh`, is
+  `reviewed`, and matches shipped code; a `stale` diagram blocks done.
 - A trace recorded with **`harness_trace`** (`summary`, and `outcome`/`story`/
   `friction` as relevant).
 - Discovered friction logged with **`harness_backlog_add`** (`title`, plus

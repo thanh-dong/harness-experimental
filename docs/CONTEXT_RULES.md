@@ -24,6 +24,7 @@ Read to classify the request, find the affected surface, and choose a lane.
 | Relevant `docs/stories/*` | Skip if unrelated | Must if a story exists | Must |
 | `docs/decisions/*` | Skip | Should if architecture or durable rules are touched | Must |
 | `docs/HARNESS_COMPONENTS.md` | Skip | Should for Harness improvements | Must for observability or benchmark work |
+| `docs/DIAGRAMS.md` flag table and the packet's D1 / D6 | Skip | Must when `impact-analysis` is active | Must |
 
 ### Planning Phase
 
@@ -34,6 +35,7 @@ Read to decide the smallest safe approach and expected proof.
 | Current files to edit | Must | Must | Must |
 | `docs/templates/story.md` | Skip | Must when creating/updating a story | Should |
 | `docs/templates/high-risk-story/*` | Skip | Skip unless risk escalates | Must |
+| `docs/templates/diagrams/*` for the diagrams the flags require | Skip | Must when a diagram is required | Must |
 | `docs/ARCHITECTURE.md` | Skip | Should for code or boundary changes | Must |
 | `docs/TEST_MATRIX.md` or `scripts/bin/harness-cli query matrix` | Should | Must | Must |
 | Relevant decisions | Skip | Should | Must |
@@ -49,6 +51,7 @@ affect the selected story.
 | --- | --- | --- | --- |
 | Files being changed | Must | Must | Must |
 | Story packet `implementation-notes.html` (write as you go) | Skip | Must | Must |
+| Reviewed change diagrams in `<packet>/diagrams/` (derive placement and tests from them) | Skip | Must when present | Must |
 | Adjacent files with same pattern | Should | Must | Must |
 | Relevant product docs | Skip if copy-only | Must if behavior changes | Must |
 | Relevant story packet | Skip if no story needed | Must | Must |
@@ -66,6 +69,7 @@ Read to prove the change and avoid claiming unsupported completion.
 | Story acceptance criteria | Should | Must | Must |
 | `docs/TEST_MATRIX.md` or `scripts/bin/harness-cli query matrix` | Should | Must | Must |
 | Validation section of story packet | Skip if no story | Must | Must |
+| `<packet>/diagrams/*` against shipped code, plus `bash scripts/check-diagrams.sh` | Skip | Must when present | Must |
 | `docs/templates/validation-report.md` | Skip | Should for notable proof | Must for high-risk proof |
 | Relevant commands from README/package docs | Should | Must | Must |
 | Benchmark protocol or external benchmark repo | Skip | Skip unless requested | Must if the story depends on benchmark proof |

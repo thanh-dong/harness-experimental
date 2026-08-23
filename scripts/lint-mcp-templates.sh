@@ -45,7 +45,7 @@ if [ ! -x "$CLI" ]; then
 else
   # Aggregate top-level help plus one level of subcommand help into one blob.
   help_blob="$("$CLI" --help 2>&1 || true)"
-  for sub in intake story decision backlog trace query; do
+  for sub in intake story decision backlog trace query intervention; do
     help_blob+=$'\n'"$("$CLI" "$sub" --help 2>&1 || true)"
   done
   help_blob+=$'\n'"$("$CLI" story signal --help 2>&1 || true)"

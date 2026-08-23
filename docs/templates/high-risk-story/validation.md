@@ -6,6 +6,10 @@ Explain what must pass before the story is done.
 
 ## Test Plan
 
+Derive cases from the reviewed diagrams: one integration/E2E case per D3
+`alt`/`opt` branch, one invariant test per D4 forbidden transition, the
+migration and rebuild-hash check from D5, fixtures and stubs from D7.
+
 | Layer | Cases |
 | --- | --- |
 | Unit | |

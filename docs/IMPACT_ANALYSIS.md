@@ -159,6 +159,11 @@ The impact set exists to change decisions, not to be context. It must feed:
    run `scripts/bin/harness-cli story verify <id>` once per story in the set.
 3. Reading list: the affected product docs and components become the
    implementation-phase reading list.
+4. The D1 blast-radius diagram: render the impact set as
+   `<packet>/diagrams/D1-<slug>.md` from `docs/templates/diagrams/D1-blast-radius.md`
+   with the coverage line in its header, and put it in front of the human at
+   the intake checkpoint. In Degraded mode the file carries `Source: hand`.
+   Standard and review rules: `docs/DIAGRAMS.md`.
 
 Record the impact summary, coverage, the posture chosen, and any failed
 validity gate in the trace notes for the task. If the analysis was skipped
