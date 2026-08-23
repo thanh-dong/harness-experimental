@@ -42,7 +42,7 @@ prompt-enforced.
 
 | Diagram | File | Status | Reviewed at |
 | --- | --- | --- | --- |
-| D3 sequence | `diagrams/D3-verify-gate.md` | see file header | design review |
+| D3 sequence | `diagrams/D3-verify-gate.md` | reviewed (human:thanh-dong, 2026-08-23) | design review |
 
 ## References
 
@@ -66,3 +66,4 @@ updated to state the gate. CLI patch version bump required (US-025 rule).
 
 - `cargo test -p harness-cli` → 69 passed.
 - Live gate run recorded in `implementation-notes.html`.
+- After D3 review: `story verify US-038` → pass.

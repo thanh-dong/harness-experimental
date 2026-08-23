@@ -4,9 +4,9 @@ Story: US-038
 Kind: sequence
 Source: hand
 Scope: harness-cli story verify <id> → docs/**/diagrams scan → verify_command → story.verify_result event
-Status: draft
-Reviewed-by: -
-Reviewed-at: -
+Status: reviewed
+Reviewed-by: human:thanh-dong
+Reviewed-at: 2026-08-23
 
 ```mermaid
 sequenceDiagram
