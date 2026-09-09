@@ -21,3 +21,4 @@ Update proof with `harness-cli story update`, never by editing this file.
 | US-036 | harness-cli info command with JSON output: CLI/schema/migrations/log-format versions | yes | no | no | no | implemented |  |
 | US-037 | docs/DIAGRAMS.md | yes | yes | no | no | implemented | check-diagrams.sh 9 ok; lint-mcp-templates PASS |
 | US-038 | story verify fails on unreviewed change diagrams | yes | yes | yes | no | implemented | D3 reviewed by human 2026-08-23; story verify pass; cargo test 69 pass |
+| US-039 | docs/stories/epics/E07-prompt-audit-remediation/US-039-prompt-audit-remediation/US-039-prompt-audit-remediation.md | no | no | no | no | in_progress |  |
