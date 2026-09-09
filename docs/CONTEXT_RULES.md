@@ -19,6 +19,8 @@ Read to classify the request, find the affected surface, and choose a lane.
 | `scripts/bin/harness-cli query matrix` | Must | Must | Must |
 | `README.md` | Should | Must | Must |
 | `docs/HARNESS.md` | Should | Must | Must |
+| `docs/TOOL_REGISTRY.md` | Should before any step that could use an external tool | Must before any step that could use an external tool | Must |
+| `docs/GOAL_LOOP.md` | Skip | Should for new initiatives or metric-driven work | Must for new initiatives or metric-driven work |
 | `docs/ARCHITECTURE.md` | Skip | Should | Must |
 | Relevant `docs/product/*` | Skip if unrelated | Must if product behavior changes | Must |
 | Relevant `docs/stories/*` | Skip if unrelated | Must if a story exists | Must |

@@ -1,5 +1,5 @@
 #!/bin/bash
-# verify-harness.sh <repo-root> — 8 checks that a harness install works.
+# verify-harness.sh <repo-root> — 9 checks that a harness install works.
 # Read-only checks run against the real repo; write checks run in a temp clone.
 REPO="${1:?usage: verify-harness.sh <repo-root>}"
 H="$REPO/scripts/bin/harness-cli"
@@ -55,7 +55,13 @@ harness_block() {
   awk '/<!-- HARNESS:BEGIN -->/ { f=1; next } /<!-- HARNESS:END -->/ { if (f) exit } f' "$1"
 }
 normalize_harness_block() {
-  tr -s '[:space:]' ' ' | sed -E 's/ on macOS\/Linux,? or `[^`]*` on Windows//g' | sed -E 's/\.exe//g' | sed -E 's/^ +| +$//'
+  # The only platform difference the three copies are allowed to have is the
+  # macOS/Linux-vs-Windows path alternative (on the matrix bullet and in the
+  # CLI paragraph), which also carries the only legitimate ".exe" mentions.
+  # Drop that whole clause -- .exe included -- rather than stripping ".exe"
+  # everywhere, so an unrelated ".exe" mention elsewhere would still surface
+  # as a real difference.
+  tr -s '[:space:]' ' ' | sed -E 's/ on macOS\/Linux,? or `[^`]*\.exe[^`]*` on Windows//g' | sed -E 's/^ +| +$//'
 }
 A_RAW="$REPO/AGENTS.md"
 S_RAW="$REPO/scripts/install-harness.sh"
