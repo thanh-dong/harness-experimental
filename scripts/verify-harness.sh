@@ -1,10 +1,10 @@
 #!/bin/bash
-# verify-harness.sh <repo-root> — 9 checks that a harness install works.
+# verify-harness.sh <repo-root> — 10 checks that a harness install works.
 # Read-only checks run against the real repo; write checks run in a temp clone.
 REPO="${1:?usage: verify-harness.sh <repo-root>}"
 H="$REPO/scripts/bin/harness-cli"
 CL=$(mktemp -d)/clone
-SCORE=0; TOTAL=9
+SCORE=0; TOTAL=10
 pass() { SCORE=$((SCORE+1)); echo "PASS  $1"; }
 fail() { echo "FAIL  $1 -- $2"; }
 T0=$(date +%s)
@@ -77,6 +77,15 @@ else
   [ "$A_TXT" != "$P_TXT" ] && DIFFS="$DIFFS AGENTS.md!=install-harness.ps1"
   [ "$S_TXT" != "$P_TXT" ] && DIFFS="$DIFFS install-harness.sh!=install-harness.ps1"
   fail "Harness reading rule" "texts differ:$DIFFS"
+fi
+
+# 10. bundled skills lint: the .claude/.codex skill trees match, the OKRA
+# completeness contract's exact sentences still appear in the skill's own
+# prose, and no grader vocabulary leaked into the shipped instructions.
+if bash "$REPO/scripts/lint-skills.sh" >/dev/null 2>&1; then
+  pass "skills lint (mirror parity, contract-to-prose, no grader vocabulary)"
+else
+  fail "skills lint" "scripts/lint-skills.sh reported problems"
 fi
 
 rm -rf "$(dirname "$CL")"

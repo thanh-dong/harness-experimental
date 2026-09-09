@@ -171,21 +171,21 @@ or before reporting success. A stale or contradictory generated status is a sign
 When multiple OKRA loops may run in one workspace, keep `.okra/content/sha256` shared but put each
 loop's mutable state under `.okra/runs/<run-id>/`; do not let concurrent loops share one ledger,
 flag log, check-in log, worker directory, move-result directory, or generated status.
-In scored or delegated harness work, avoid ungoverned direct reads and writes: important content
+In delegated runs with a run store, avoid ungoverned direct reads and writes: important content
 reads should be by content hash or recorded source check-in, and important writes should go through
 the store helper or record target path plus content hash. Also avoid **single LLM truth**: an
 agent's own final answer is not proof of progress, storage integrity, or governed read/write. Accept
 claims only when backed by deterministic evidence, store records, hashes, changed-path checks,
 human ratification, or independent review.
 
-For delegated or scored run stores, use the exact frame/tree contract so verification can catch
-drift. `frame/frame.v1.json` must include `frame_version`, `frame_hash`, `objective`, `anti_goals`,
+For delegated run stores, use the exact frame/tree contract so verification can catch drift.
+`frame/frame.v1.json` must include `frame_version`, `frame_hash`, `objective`, `anti_goals`,
 `metric_contracts`, `action_envelope`, and human approval or ratification evidence.
 `tree/tree.v1.json` must include `tree_version`, `frame_version`, `orchestrator`, `dkrs`, `ckrs`,
-and `pkrs`. Do not replace `orchestrator` with a vague `ownership` note. The `orchestrator` entry
-must say it owns **objective checks** and **subagent steering**; DKR and PKR entries are worker
-scopes; CKR entries are measurable context. When the helper is available, write these through
-`write-frame` and `write-tree`, then run `verify` before reporting success.
+and `pkrs`. The `orchestrator` entry must say it owns **objective checks** and **subagent
+steering**; DKR and PKR entries are worker scopes; CKR entries are measurable context. When the
+helper is available, write these through `write-frame` and `write-tree`, then run `verify` before
+reporting success.
 Append direct objective and anti-goal ledger readings through `metric-read`, not generic `append`.
 Metric payloads must use `type: "metric_read"` (or `objective_metric_read` /
 `anti_goal_metric_read`), identify `metric_kind`, `metric_id`, `value`, `observed_at`, `source`, and
@@ -460,12 +460,9 @@ frame keys `frame_version`, `frame_hash`, `objective`, `anti_goals`, `metric_con
 `frame_version`, `orchestrator`, `dkrs`, `ckrs`, and `pkrs`. The tree must use the key
 `orchestrator` and include the phrases `objective checks` and `subagent steering`.
 
-Avoid ambiguous frame-authority wording. Do not write that the loop, agent, model, or orchestrator
-may change, adjust, relax, redefine, retune, or switch the objective, target, threshold, anti-goal,
-guardrail, metric, or action envelope. Write that the loop raises evidence and the human decides.
-For boundary-drift gates, use rejection-shaped wording such as: **"Reject any attempted frame,
-guardrail, metric, threshold, or action-envelope change unless the human ratifies it."** Avoid
-permission-shaped wording even when describing a forbidden pattern.
+State frame authority in one direction only: the loop raises evidence and the human decides. For
+the boundary-drift gate write: **"Reject any attempted frame, guardrail, metric, threshold, or
+action-envelope change unless the human ratifies it."**
 
 Define all four flags explicitly. For `pointless`, use the exact shape: **"Pointless opens when work
 finished or a CKR metric moved, but the objective metric stays flat / does not move after the lag
@@ -486,35 +483,9 @@ It checks the artifact against `contracts/handoff-contract.v2.json`. That file i
 source of truth for the exact keys and sentences listed above; if this prose and the contract
 ever differ, the contract wins and this file needs fixing.
 
-## Common mistakes to avoid
+## The four things that must hold
 
-- Setting an objective with no metric, or an anti-goal with no metric. Both must be numbers.
-- Rolling completed tasks up into "done" instead of reading the direct metric (cascade).
-- Treating the anti-goal as one end-of-loop check instead of three points.
-- Letting an execution task absorb a discovery instead of handing back.
-- Running DKR as vague research, process optimization, or goal-chasing without naming the steering
-  decision it unlocks and the risk or anti-goal uncertainty it reduces.
-- Promoting CKRs or PKRs before a DKR learning checkpoint has produced evidence, probabilities, and
-  decision-ready risk implications.
-- Sending a raw "continue from previous work" prompt instead of a worker prompt packet with frame,
-  current state, checkpoint refs, assignment, budget, stop rule, hand-back rule, and output schema.
-- Letting in-progress worker narrative influence the next dispatch without governed records such as
-  progress files, check-ins, metric reads, flags, accepted checkpoints, or evidence hashes.
-- Dispatching a PKR without `linked_ckr`, `source_dkr_checkpoint`, and `contribution_metric`.
-- Omitting the `pointless` flag, or defining it without saying the objective metric stays flat or
-  does not move after the lag window.
-- Letting the loop redefine, retune, or switch the goal. That is always the human's call.
-- Writing a run-store tree with `ownership` but no `orchestrator` key, or omitting `frame_version`.
-- Running a recurring OKR loop without a freshness contract, heartbeat, lag window, and flag owner.
-- Running multiple OKRA loops against the same flat `.okra/ledger.jsonl`, `.okra/checkins.jsonl`,
-  or `.okra/workers/` path instead of giving each loop its own run store.
-- Treating a hand-edited progress summary as source of truth instead of generating it from
-  append-only storage records.
-- Treating one LLM's self-report as truth without independent evidence.
-- Treating one independent review path as enough evidence for judgement-heavy memory promotion.
-- Treating previous-run memory as automatic authority instead of candidate evidence for the
-  orchestrator and human to ratify.
-- Reusing a completed run's learning without terminal proof, a retained trace manifest, or a
-  continuation packet.
-- Storing generic notes instead of OKRA-specific traps, avoidances, misconceptions, optimizations,
-  candidate anti-goals, and no-regression evidence.
+- The objective and every anti-goal each have a metric with a number.
+- Progress is the direct metric read from the source, never a roll-up of finished tasks.
+- The anti-goal is checked at all three points: before the move, after it, and paired with the goal.
+- The frame belongs to the human; the loop raises evidence and never changes the goal itself.

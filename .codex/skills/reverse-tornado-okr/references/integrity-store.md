@@ -10,7 +10,7 @@ The integrity rule is simple:
 This keeps storage lightweight while preventing `status.md` from saying one thing, `flags.jsonl`
 another, and the DKR/CKR/PKR tree a third.
 
-For scored or delegated harness runs, add two anti-goals:
+For delegated harness runs, add three anti-goals:
 
 - **No ungoverned direct read**: important content reads should come from a content hash or append a
   source/check-in record that says what was read and why.
@@ -75,7 +75,7 @@ Generated view:
 
 ## Required Frame and Tree Shape
 
-For delegated or scored runs, keep the frame and tree boring and machine-checkable.
+For delegated runs, keep the frame and tree boring and machine-checkable.
 
 `frame/frame.v1.json` must be an object with:
 
@@ -96,9 +96,8 @@ For delegated or scored runs, keep the frame and tree boring and machine-checkab
 - `ckrs`
 - `pkrs`
 
-Use the exact key `orchestrator`. Do not replace it with `ownership`. The orchestrator entry should
-say it owns `objective checks`, check-ins, the OKR board, and `subagent steering`. DKR entries should
-be discovery-worker scopes with budgets, decision targets, risk or anti-goal uncertainty, and
+Use the exact key `orchestrator`. The orchestrator entry should say it owns `objective checks`,
+check-ins, the OKR board, and `subagent steering`. DKR entries should be discovery-worker scopes with budgets, decision targets, risk or anti-goal uncertainty, and
 probability/confidence outputs. CKR entries should be measurable contribution context, not worker
 jobs. PKR entries should be progression-worker scopes with progress signals.
 
@@ -116,7 +115,7 @@ If `verify` reports missing `frame_version`, `orchestrator`, `objective checks`,
 ## Metric Read Records
 
 Use the helper's `metric-read` command for objective, CKR, and anti-goal ledger entries. Do not use
-generic `append ledger` for these reads in scored or delegated runs.
+generic `append ledger` for these reads in delegated runs.
 
 ```json
 {"type":"metric_read","metric_kind":"objective","metric_id":"objective.governed_content_use_rate","value":0.9,"target":0.9,"observed_at":"2026-06-24T00:00:00Z","source":"deterministic checker","freshness":"observed_at=2026-06-24T00:00:00Z -> status=fresh against max_age=72h"}
@@ -152,7 +151,8 @@ Verification should fail when:
 - a referenced content hash is missing
 - a generated status file is older than a source record
 
-For scored harness runs, a claim should be accepted only when it is backed by independent evidence:
+For delegated harness runs, a claim should be accepted only when it is backed by independent
+evidence:
 
 - store verification output for integrity
 - content hashes for important read/write content
@@ -160,7 +160,7 @@ For scored harness runs, a claim should be accepted only when it is backed by in
 - changed-path allowlists for workspace writes
 - second-agent or human review for semantic judgments that a script cannot decide
 
-When recording scored acceptance evidence, append a check-in payload with
+When recording acceptance evidence, append a check-in payload with
 `type: "acceptance_evidence_checkin"`. Include `single_llm_truth_acceptance_count: 0` and evidence
 entries for at least store verification, content hashes, and changed-path or deterministic-checker
 results. This keeps "the agent said it worked" out of the acceptance path.

@@ -17,8 +17,8 @@ OKRA loops may run at the same time, keep the shared root as `.okra/` and place 
   envelope, and the human approval record.
 - `.okra/runs/<run-id>/tree/tree.v1.json`: current DKR/CKR/PKR decomposition and worker scopes.
   Include `tree_version`, `frame_version`, `orchestrator`, `dkrs`, `ckrs`, and `pkrs`. The
-  `orchestrator` field must explicitly own objective checks, check-ins, the OKR board, and subagent
-  steering. Do not use a generic `ownership` field as a substitute for `orchestrator`.
+  `orchestrator` field must explicitly own objective checks, check-ins, the OKR board, and
+  subagent steering.
 - `.okra/runs/<run-id>/moves/<key-sha256>.json`: write-once committed move result. Each file
   records the full `idempotency_key`, `key_sha256`, `payload_sha256`, committed timestamp, and payload.
 - `.okra/runs/<run-id>/ledger.jsonl`: append-only direct objective and anti-goal readings with `observed_at`,
