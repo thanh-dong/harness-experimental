@@ -18,5 +18,7 @@ Add items with `harness-cli backlog add`, close with `harness-cli backlog close`
 | 01M22AD1CA8BTV8BT68QX6ZNVW | DIAGRAMS.md line 71 example uses nonexistent story add --diagram | tiny | proposed |  |  |
 | 01M22AD1D4QDMB7A45RA9CVEA7 | TOOL_MAPPING.md has no per-tool description text for MCP hosts | tiny | proposed |  |  |
 | 01M22CX2S40BNNS878HTQYEZCX | Re-run /claude-api prompt-audit at each Claude model release | tiny | proposed |  |  |
+| 01M22EBDXMHQ2J5DAGF0S3NXA1 | Installer manifest does not ship verify-harness.sh, lint-skills.sh, or the bundled skill trees | normal | proposed |  |  |
+| 01M22EBDYJN1HEQHX5G296AJJY | harness-intake-griller preflight list restates the reading rule | tiny | proposed |  |  |
 | 1 | schema_version test assertions are hardcoded to latest version | tiny | proposed | New migrations stop breaking unrelated tests |  |
 | 2 | Upstream okra-store.sh macOS flock fallback to lagz0ne/okra | tiny | proposed | okra store helpers work identically on macOS and Linux |  |
