@@ -240,7 +240,10 @@ items; `low` is not a valid lane.
 
 ## Task Loop
 
-For every task:
+Read-only requests — questions, explanations, reports, audits, reviews, status
+checks — skip this loop; answer them directly (`docs/FEATURE_INTAKE.md`,
+"The gate is for change"). For every task that changes a tracked file or
+records harness state:
 
 1. Classify the request with `docs/FEATURE_INTAKE.md`.
 2. Record the classification with `scripts/bin/harness-cli intake`.

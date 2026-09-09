@@ -28,7 +28,9 @@ connection is unavailable, stop and report the blocker — never bypass the gate
 
 ## Harness Intake Gate
 
-Run the intake gate before any tool call that mutates the repo. User approval
+Run the intake gate before any tool call that mutates the repo. A request that
+mutates nothing — a question, a report, an audit, a review — skips the gate and
+its records; answer it directly. User approval
 ("go ahead", "do it", an approved design) moves work *through* the gate, not
 *around* it, because the gate is what records lane, flags, and proof for the
 team. If you are drafting code before the gate output exists, stop and back

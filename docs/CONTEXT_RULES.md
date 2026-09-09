@@ -123,7 +123,7 @@ Budget rules:
 
 ## Additive Behavior
 
-These rules do not replace `AGENTS.md`. Agents should still read the stable
+These rules do not replace `AGENTS.md`. Agents must still read the stable
 entrypoint documents listed there before work. This document explains what to
 retrieve after that initial context, based on lane, phase, and trigger.
 

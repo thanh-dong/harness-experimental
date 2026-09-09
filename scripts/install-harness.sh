@@ -299,11 +299,14 @@ context-load time. Never wrap them in backticks; that disables the import.
 
 @docs/FEATURE_INTAKE.md
 
-Also run `scripts/bin/harness-cli query matrix` before starting work.
+Also run `scripts/bin/harness-cli query matrix` before starting work. The
+intake gate is for changes and new development; a question, report, audit, or
+review that changes nothing skips it and is answered directly.
 
 Lane-dependent context (`README.md`, `docs/HARNESS.md`, `docs/ARCHITECTURE.md`,
-product docs, stories, decisions) is intentionally not imported — read it per
-lane, as `docs/CONTEXT_RULES.md` prescribes.
+`docs/TOOL_REGISTRY.md`, `docs/GOAL_LOOP.md`, product docs, stories, decisions)
+is intentionally not imported — read it per lane, as `docs/CONTEXT_RULES.md`
+prescribes.
 <!-- HARNESS:END -->
 EOF
 }

@@ -62,9 +62,10 @@ Rules of engagement — every agent, every session:
   re-apply it — the loser is still in the log.
 - **The log is also your memory.** A lesson from a story goes to
   `harness-cli story signal add` and friction with the harness to
-  `harness-cli backlog add`, so it outlives the session. At intake, run
-  `harness-cli query signals` and `harness-cli query backlog` before planning,
-  so you start from what earlier sessions already learned.
+  `harness-cli backlog add`, so it outlives the session. On normal and
+  high-risk work, run `harness-cli query signals` and `harness-cli query
+  backlog` at intake so you start from what earlier sessions learned; tiny
+  work skips them, as `docs/CONTEXT_RULES.md` prescribes.
 - **If the cache looks wrong**, run `harness-cli rebuild` (or delete
   `harness.db` and run any query — it auto-rebuilds from the log). Two rebuilds
   print the same dump hash; a mismatch means a corrupt log line.
@@ -86,9 +87,12 @@ context-load time. Never wrap them in backticks; that disables the import.
 
 @docs/FEATURE_INTAKE.md
 
-Also run `scripts/bin/harness-cli query matrix` before starting work.
+Also run `scripts/bin/harness-cli query matrix` before starting work. The
+intake gate is for changes and new development; a question, report, audit, or
+review that changes nothing skips it and is answered directly.
 
 Lane-dependent context (`README.md`, `docs/HARNESS.md`, `docs/ARCHITECTURE.md`,
-product docs, stories, decisions) is intentionally not imported — read it per
-lane, as `docs/CONTEXT_RULES.md` prescribes.
+`docs/TOOL_REGISTRY.md`, `docs/GOAL_LOOP.md`, product docs, stories, decisions)
+is intentionally not imported — read it per lane, as `docs/CONTEXT_RULES.md`
+prescribes.
 <!-- HARNESS:END -->
