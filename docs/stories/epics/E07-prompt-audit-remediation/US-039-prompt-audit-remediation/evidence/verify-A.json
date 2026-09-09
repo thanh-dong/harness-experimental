@@ -1,0 +1,109 @@
+{
+  "artifact_contract": "okra.handoff-contract.v2",
+  "complete": false,
+  "satisfied_count": 16,
+  "required_count": 19,
+  "satisfied": [
+    "worker_prompt_packet",
+    "in_progress_rule",
+    "dkr_to_dkr_fields",
+    "ckr_pkr_trace",
+    "pkr_handback",
+    "accumulated_governance",
+    "four_flags",
+    "flag_lifecycle",
+    "operating_heartbeat",
+    "worker_progress_reports",
+    "freshness_contract",
+    "orchestrator_ownership",
+    "eval_points",
+    "no_cascade",
+    "frame_tree_schema",
+    "human_only"
+  ],
+  "missing": [
+    {
+      "id": "dkr_to_dkr_worked",
+      "description": "DKR-to-DKR handoff includes a concrete worked instantiation, not only a field table.",
+      "hint": "Write one concrete worked instantiation: name the previous DKR learning checkpoint, its decision target, a confidence/probability update before and after (prior -> posterior), and the orchestrator decision (accepted/held/rejected).",
+      "source": "SKILL.md Output",
+      "unsatisfied_groups": [
+        {
+          "mode": "any",
+          "needed": [
+            "previous dkr learning checkpoint",
+            "prior dkr",
+            "previous dkr checkpoint"
+          ]
+        },
+        {
+          "mode": "any",
+          "needed": [
+            "decision target",
+            "decide whether to"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ckr_not_worker_work",
+      "description": "Artifact states CKR is measurable contribution context, not worker work.",
+      "hint": "State explicitly that CKR is measurable contribution context, not worker work (it is not dispatched as a worker job).",
+      "source": "SKILL.md Step 2 (CKR) + Output",
+      "unsatisfied_groups": [
+        {
+          "mode": "any",
+          "needed": [
+            "not worker work",
+            "not a worker job",
+            "not dispatched as work",
+            "not subagent work",
+            "measurable contribution context, not",
+            "context and measurement, not"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "candidate_antigoal_library",
+      "description": "Accumulated anti-goals as a candidate guardrail library with governance fields.",
+      "hint": "Define candidate-anti-goals.v1.json with metric_id, threshold, type, applies_when/does_not_apply_when, invalidates_when/recertify_by, candidate_status, no_regression_evidence, and ratification boundary.",
+      "source": "SKILL.md Output",
+      "unsatisfied_groups": [
+        {
+          "mode": "all",
+          "needed": [
+            "metric_id",
+            "threshold",
+            "type",
+            "candidate_status"
+          ]
+        },
+        {
+          "mode": "any",
+          "needed": [
+            "applies_when",
+            "does_not_apply_when",
+            "invalidates_when",
+            "recertify_by"
+          ]
+        },
+        {
+          "mode": "any",
+          "needed": [
+            "no_regression_evidence",
+            "no regression"
+          ]
+        },
+        {
+          "mode": "any",
+          "needed": [
+            "source_refs",
+            "source refs",
+            "source references"
+          ]
+        }
+      ]
+    }
+  ]
+}

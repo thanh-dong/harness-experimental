@@ -1,0 +1,86 @@
+{
+  "artifact_contract": "okra.handoff-contract.v1",
+  "complete": false,
+  "satisfied_count": 16,
+  "required_count": 20,
+  "satisfied": [
+    "worker_prompt_packet",
+    "in_progress_rule",
+    "dkr_to_dkr_fields",
+    "dkr_to_dkr_worked",
+    "ckr_pkr_trace",
+    "ckr_not_worker_work",
+    "pkr_handback",
+    "four_flags",
+    "flag_lifecycle",
+    "operating_heartbeat",
+    "worker_progress_reports",
+    "freshness_contract",
+    "eval_points",
+    "no_cascade",
+    "frame_tree_schema",
+    "human_only"
+  ],
+  "missing": [
+    {
+      "id": "candidate_antigoal_library",
+      "description": "Accumulated anti-goals as a candidate guardrail library with governance fields.",
+      "hint": "Define candidate-anti-goals.v1.json with metric_id, threshold, type, applies_when/does_not_apply_when, invalidates_when/recertify_by, candidate_status, no_regression_evidence, and ratification boundary.",
+      "source": "SKILL.md Step 2e; case prompt",
+      "unsatisfied_groups": [
+        {
+          "mode": "any",
+          "needed": [
+            "trace evidence",
+            "trace_evidence",
+            "trace refs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "accumulated_governance",
+      "description": "Accumulated anti-goals are inputs not authority; the three zero-valued anti-goals stated.",
+      "hint": "State the three governance anti-goals == 0 and that previous-run anti-goals are automatic inputs, not automatic authority.",
+      "source": "SKILL.md Step 2e; case prompt",
+      "unsatisfied_groups": [
+        {
+          "mode": "all",
+          "needed": [
+            "unratified_memory_promotion_count == 0",
+            "single_llm_truth_acceptance_count == 0",
+            "eval_regression_count == 0"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "orchestrator_ownership",
+      "description": "Exact orchestrator-ownership sentence present.",
+      "hint": "Include the exact orchestrator-ownership sentence before any variants.",
+      "source": "SKILL.md Output; case prompt",
+      "unsatisfied_groups": [
+        {
+          "mode": "all",
+          "needed": [
+            "The orchestrator owns objective checks, check-ins, the OKR board, and subagent steering until the objective metric reaches target."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "target_instantiation",
+      "description": "Objective target instantiated.",
+      "hint": "Instantiate the target as handoff_contract_acceptance_rate >= 0.90.",
+      "source": "case prompt",
+      "unsatisfied_groups": [
+        {
+          "mode": "all",
+          "needed": [
+            "handoff_contract_acceptance_rate >= 0.90"
+          ]
+        }
+      ]
+    }
+  ]
+}

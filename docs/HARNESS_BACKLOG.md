@@ -17,5 +17,6 @@ Add items with `harness-cli backlog add`, close with `harness-cli backlog close`
 | 01M22AD1BBBBRAYXJH3SH0XDC3 | Two decisions numbered 0007 | tiny | proposed |  |  |
 | 01M22AD1CA8BTV8BT68QX6ZNVW | DIAGRAMS.md line 71 example uses nonexistent story add --diagram | tiny | proposed |  |  |
 | 01M22AD1D4QDMB7A45RA9CVEA7 | TOOL_MAPPING.md has no per-tool description text for MCP hosts | tiny | proposed |  |  |
+| 01M22CX2S40BNNS878HTQYEZCX | Re-run /claude-api prompt-audit at each Claude model release | tiny | proposed |  |  |
 | 1 | schema_version test assertions are hardcoded to latest version | tiny | proposed | New migrations stop breaking unrelated tests |  |
 | 2 | Upstream okra-store.sh macOS flock fallback to lagz0ne/okra | tiny | proposed | okra store helpers work identically on macOS and Linux |  |

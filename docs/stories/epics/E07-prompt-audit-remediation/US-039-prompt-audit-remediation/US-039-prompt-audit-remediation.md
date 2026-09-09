@@ -58,7 +58,7 @@ Source: `/claude-api prompt-audit` run on 2026-09-07 (31 findings: 12 high,
 | Diagram | File | Status | Reviewed at |
 | --- | --- | --- | --- |
 | D1 blast radius | not required (impact-analysis provider absent) | — | — |
-| D3 sequence | `diagrams/D3-verify-and-lint-flow.md` | draft | design review |
+| D3 sequence | `diagrams/D3-verify-and-lint-flow.md` | draft (corrected after the first agent review; awaiting the second-agent re-review the controller records) | design review |
 
 ## References
 
@@ -71,19 +71,46 @@ Source: `/claude-api prompt-audit` run on 2026-09-07 (31 findings: 12 high,
 | Layer | Expected proof |
 | --- | --- |
 | Unit | `bash scripts/check-diagrams.sh`; `bash scripts/lint-mcp-templates.sh`; new `bash scripts/lint-skills.sh` |
-| Integration | `bash scripts/verify-harness.sh .` 8/8; `bash scripts/test-install-contract.sh` |
+| Integration | `bash scripts/verify-harness.sh .` 10/10 (8/8 before this story added checks 9 and 10); `bash scripts/test-install-contract.sh` |
 | E2E | verifier passes on the Phase 0 fixture artifact after Phase 1; A/B of OKR skill variants under the verifier |
 | Platform | n/a |
 | Release | n/a |
 
 ## Harness Delta
 
-- New lints: `scripts/lint-skills.sh`, reading-block equality in
-  `scripts/verify-harness.sh`, generated-view wording check in
-  `scripts/lint-mcp-templates.sh`.
-- Decision: keep verification scaffolding (Fable 5.1 guidance), see
-  `docs/decisions/0013-keep-verification-steps.md`.
+- `scripts/verify-harness.sh` check 9: the `## Harness` reading block in
+  `AGENTS.md`, `scripts/install-harness.sh`, and `scripts/install-harness.ps1`
+  must read identically once the macOS/Linux-vs-Windows path alternative is
+  normalized away.
+- `scripts/verify-harness.sh` check 10: runs the new `scripts/lint-skills.sh`
+  (`.claude`/`.codex` mirror parity, the contract's exact sentences present in
+  the skill prose, no grader vocabulary in shipped instructions). The score is
+  now 10, not 8.
+- `scripts/lint-mcp-templates.sh` assertion 3: no generated view
+  (`docs/TEST_MATRIX.md`, `docs/HARNESS_BACKLOG.md`,
+  `docs/decisions/README.md`) may be named as something an agent edits.
+- `docs/decisions/0013-keep-verification-steps.md` — keep deterministic
+  verification steps under Fable 5.1.
 
 ## Evidence
 
-Filled in as phases complete; see `implementation-notes.html`.
+Verification commands and their final results on the branch:
+
+| Command | Result |
+| --- | --- |
+| `bash scripts/verify-harness.sh .` | `SCORE: 10/10` (was 8/8 before checks 9 and 10 existed) |
+| `bash scripts/lint-skills.sh` | `PASS: skills lint clean.` — mirror parity, both contract sentences found in prose, no grader vocabulary |
+| `bash scripts/lint-mcp-templates.sh` | `PASS: MCP templates lint clean.` — all three assertions |
+| `bash scripts/check-diagrams.sh` | `check-diagrams: 11 file(s) ok` |
+| `okra-verify-artifact.py evidence/fixture-okr-artifact.md` | 19 / 19, `complete: true`, exit 0 (baseline before the contract fix was 16 / 20) |
+
+A/B of the OKR skill variants under the verifier: variant A scored 16 / 19,
+variant B scored 18 / 19 as a strict superset, so **variant B was adopted**
+(commit `a7f74b4`). Variant B's skill text is 32.9% shorter; its artifact is
+29 words (0.55%) longer, which is writer noise between two independently
+written artifacts. Both variants missed `dkr_to_dkr_worked`.
+
+Durable copies live in `evidence/` — the Task 1 fixture, the baseline verifier
+JSON, and both A/B artifacts with their verifier JSON. See
+`evidence/README.md` for what each file proves, and
+`implementation-notes.html` for the per-task narrative.
