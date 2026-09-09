@@ -32,12 +32,13 @@ connection is unavailable, stop and report the blocker — never bypass the gate
 
 ## Harness Intake Gate
 
-**The intake gate is non-negotiable. Run it BEFORE any tool call that mutates
-the repo.** User approval ("go ahead", "do it", an approved design) moves work
-*through* the gate, not *around* it. If you are drafting code before the gate
-output exists, stop and back up.
+Run the intake gate before any tool call that mutates the repo. User approval
+("go ahead", "do it", an approved design) moves work *through* the gate, not
+*around* it, because the gate is what records lane, flags, and proof for the
+team. If you are drafting code before the gate output exists, stop and back
+up.
 
-### Emit this preamble first, every time
+### Emit this preamble first
 
 ```
 Lane:     tiny | normal | high-risk
@@ -45,7 +46,7 @@ Flags:    <count> — <flag1>, <flag2>, ...
 Gates:    <hard gates triggered, or "none">
 Story:    <docs/stories/... path, or "tiny — direct patch, no story file">
 Decision: <docs/decisions/NNNN-... path, or "not needed">
-Docs:     <docs/TEST_MATRIX.md, docs/stories/backlog.md, docs/HARNESS_BACKLOG.md, ...>
+Docs:     <docs/product/..., docs/stories/backlog.md, docs/HARNESS_BACKLOG.md, ...>
 ```
 
 Derive it from `docs/FEATURE_INTAKE.md`. Count risk flags honestly (Auth,
@@ -61,13 +62,14 @@ narrows scope. Record the classification with the **`harness_intake`** tool
 - **Tiny** — none; patch directly, but still emit the preamble and record the
   intake row with `harness_intake`.
 - **Normal** — one story from `docs/templates/story.md`, recorded with
-  **`harness_story_add`** (`id`, `title`, `lane`), plus planned
-  `docs/TEST_MATRIX.md` rows; the change diagrams the flags require under
+  **`harness_story_add`** (`id`, `title`, `lane`), which renders the story's
+  row into the generated `docs/TEST_MATRIX.md` (never hand-edit that file);
+  the change diagrams the flags require under
   `<packet>/diagrams/` (`docs/DIAGRAMS.md`), reviewed at their stage.
 - **High-risk** — a folder from `docs/templates/high-risk-story/` with
   `execplan.md`, `overview.md`, `design.md`, `validation.md` all filled in; a
   decision via **`harness_decision_add`** (`id`, `title`, `doc`) plus a
-  `docs/decisions/NNNN-*.md` file; `docs/TEST_MATRIX.md` rows; and
+  `docs/decisions/NNNN-*.md` file; the story row via `harness_story_add`; and
   `docs/stories/backlog.md` updated; D1, D2, D3 and every flag-required change
   diagram under `<packet>/diagrams/`, each `reviewed` by a human at design
   review and recorded with **`harness_intervention_add`** (`type: "review"`,
@@ -78,7 +80,8 @@ narrows scope. Record the classification with the **`harness_intake`** tool
 - Story status reflects reality via **`harness_story_update`** (planned →
   in_progress → implemented, or blocker noted), including the proof flags
   `unit`/`integration`/`e2e`/`platform` as numeric booleans (`1`/`0`).
-- `docs/TEST_MATRIX.md` rows current, and validation commands were actually run.
+- The story's proof flags are current via `harness_story_update` (the matrix
+  view is regenerated from them), and validation commands were actually run.
 - Every required change diagram passes `scripts/check-diagrams.sh`, is
   `reviewed`, and matches shipped code; a `stale` diagram blocks done.
 - A trace recorded with **`harness_trace`** (`summary`, and `outcome`/`story`/
