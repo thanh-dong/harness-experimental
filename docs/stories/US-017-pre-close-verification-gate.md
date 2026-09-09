@@ -16,7 +16,6 @@ the trace is still recorded.
 
 ## Relevant Product Docs
 
-- `PHASE4.md`
 - `docs/HARNESS.md`
 - `docs/GLOSSARY.md`
 

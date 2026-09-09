@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Removed `PHASE2.md`–`PHASE5.md` plans; their content lives in
+  `docs/HARNESS_COMPONENTS.md`, `docs/HARNESS_MATURITY.md`, `docs/TRACE_SPEC.md`,
+  and the shipped stories US-008 to US-024.
+
 ## 2026-07-02 - PR #5
 
 - Event-log durable layer: git-native team state (US-028) (@thanh-dong)

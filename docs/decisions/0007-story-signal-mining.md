@@ -63,7 +63,8 @@ log every note heading mechanically.
 
 1. **Parse the HTML in `propose`.** Rejected. It would make the proposer
    non-deterministic and pull HTML parsing into the engine, contradicting the
-   rule-based design that keeps proposals auditable (`PHASE5.md` lists
+   rule-based design that keeps proposals auditable
+   (`docs/stories/US-024-improvement-proposal-pipeline.md` lists
    "circular / low-quality proposals" as the failure signal to avoid).
 2. **Reuse `harness_friction` on the trace.** Rejected. Friction is per-trace
    and tied to a single execution; signals are per-story design facts that

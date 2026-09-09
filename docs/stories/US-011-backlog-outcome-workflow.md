@@ -15,7 +15,6 @@ when closed, and backlog queries can filter open and closed items.
 
 ## Relevant Product Docs
 
-- `PHASE3.md`
 - `docs/HARNESS.md`
 - `docs/GLOSSARY.md`
 

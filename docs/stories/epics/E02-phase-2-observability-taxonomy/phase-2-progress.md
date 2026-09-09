@@ -2,7 +2,8 @@
 
 ## Scope
 
-Phase 2 is docs-only observability and taxonomy work from `PHASE2.md`.
+Phase 2 is docs-only observability and taxonomy work planned in `PHASE2.md`
+(removed; see git history before June 2026).
 
 Allowed changes:
 

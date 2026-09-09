@@ -16,7 +16,6 @@ exit code.
 
 ## Relevant Product Docs
 
-- `PHASE4.md`
 - `docs/TRACE_SPEC.md`
 - `docs/HARNESS.md`
 
