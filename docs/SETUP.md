@@ -85,7 +85,7 @@ scripts/bin/harness-cli tool check            # scan presence -> present/missing
 scripts/bin/harness-cli query tools --summary # the equipped tool menu (built-ins + registered)
 scripts/bin/harness-cli query matrix          # the proof board is queryable
 scripts/calibrate-harness.sh                  # audit + score-trace behave (black-box goldens)
-bash scripts/verify-harness.sh .              # install self-verify (expect a full score; 10 checks today)
+bash scripts/verify-harness.sh .              # install self-verify (expect a full score)
 ```
 
 `verify-harness.sh` is the one-command answer to "is the harness well set up":

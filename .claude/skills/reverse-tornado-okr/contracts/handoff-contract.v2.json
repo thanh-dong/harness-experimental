@@ -89,7 +89,7 @@
 
     {"id": "frame_tree_schema", "description": "Frame/tree run-store schema keys present.",
      "groups": [{"mode": "all", "tokens": ["frame_version", "tree_version", "orchestrator", "dkrs", "ckrs", "pkrs"]}, {"mode": "all", "tokens": ["objective checks", "subagent steering"]}],
-     "hint": "Include the frame/tree run-store schema with frame_version, tree_version, orchestrator (objective checks + subagent steering), dkrs, ckrs, pkrs.", "source": "SKILL.md Step 2c / Output"},
+     "hint": "Include the frame/tree run-store schema with frame_version, tree_version, orchestrator (objective checks + subagent steering), dkrs, ckrs, pkrs.", "source": "SKILL.md Step 2c / Contract"},
 
     {"id": "human_only", "description": "Human-only frame line present.",
      "groups": [{"mode": "any", "tokens": ["human owns the frame", "human-only", "goal-switching is human", "goal switching is human", "reject any attempted frame"]}],
