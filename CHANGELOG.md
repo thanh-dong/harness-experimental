@@ -1,5 +1,75 @@
 # Changelog
 
+## 2026-09-09 - PR #6
+
+- US-039: prompt-audit remediation and model fit for Opus 5 / Fable 5.1 (@thanh-dong)
+- Merge commit: `4b5de1e646d2e47579c68d9d23a6b4ec1056f5b9`
+- Harness CLI release: not required
+- Changed files:
+  - `.claude/skills/harness-intake-griller/SKILL.md`
+  - `.claude/skills/reverse-tornado-okr/SKILL.md`
+  - `.claude/skills/reverse-tornado-okr/contracts/handoff-contract.v2.json`
+  - `.claude/skills/reverse-tornado-okr/references/integrity-store.md`
+  - `.claude/skills/reverse-tornado-okr/references/learning-memory.md`
+  - `.claude/skills/reverse-tornado-okr/references/storage-idempotency.md`
+  - `.claude/skills/reverse-tornado-okr/scripts/okra-verify-artifact.py`
+  - `.codex/skills/reverse-tornado-okr/SKILL.md`
+  - `.codex/skills/reverse-tornado-okr/contracts/handoff-contract.v2.json`
+  - `.codex/skills/reverse-tornado-okr/references/integrity-store.md`
+  - `.codex/skills/reverse-tornado-okr/references/learning-memory.md`
+  - `.codex/skills/reverse-tornado-okr/references/storage-idempotency.md`
+  - `.codex/skills/reverse-tornado-okr/scripts/okra-verify-artifact.py`
+  - `.harness/events/5f09fdb3-2bee.jsonl`
+  - `AGENTS.md`
+  - `CHANGELOG.md`
+  - `CLAUDE.md`
+  - `PHASE2.md`
+  - `PHASE3.md`
+  - `PHASE4.md`
+  - `PHASE5.md`
+  - `README.md`
+  - `docs/CONTEXT_RULES.md`
+  - `docs/DIAGRAMS.md`
+  - `docs/FEATURE_INTAKE.md`
+  - `docs/GLOSSARY.md`
+  - `docs/GOAL_LOOP.md`
+  - `docs/HARNESS.md`
+  - `docs/HARNESS_BACKLOG.md`
+  - `docs/HARNESS_COMPONENTS.md`
+  - `docs/IMPACT_ANALYSIS.md`
+  - `docs/SETUP.md`
+  - `docs/TEST_MATRIX.md`
+  - `docs/TRACE_SPEC.md`
+  - `docs/decisions/0007-story-signal-mining.md`
+  - `docs/decisions/0013-keep-verification-steps.md`
+  - `docs/decisions/README.md`
+  - `docs/stories/US-008-trace-quality-scoring.md`
+  - `docs/stories/US-009-enriched-friction-query.md`
+  - `docs/stories/US-011-backlog-outcome-workflow.md`
+  - `docs/stories/US-012-story-verify-command-field.md`
+  - `docs/stories/US-015-story-verify-command.md`
+  - `docs/stories/US-016-auto-trace-scoring-on-write.md`
+  - `docs/stories/US-017-pre-close-verification-gate.md`
+  - `docs/stories/US-027-implementation-note-signals/implementation-notes.html`
+  - `docs/stories/epics/E02-phase-2-observability-taxonomy/phase-2-progress.md`
+  - `docs/stories/epics/E07-prompt-audit-remediation/US-039-prompt-audit-remediation/US-039-prompt-audit-remediation.md`
+  - `docs/stories/epics/E07-prompt-audit-remediation/US-039-prompt-audit-remediation/diagrams/D3-verify-and-lint-flow.md`
+  - `docs/stories/epics/E07-prompt-audit-remediation/US-039-prompt-audit-remediation/evidence/README.md`
+  - `docs/stories/epics/E07-prompt-audit-remediation/US-039-prompt-audit-remediation/evidence/artifact-A.md`
+  - `docs/stories/epics/E07-prompt-audit-remediation/US-039-prompt-audit-remediation/evidence/artifact-B.md`
+  - `docs/stories/epics/E07-prompt-audit-remediation/US-039-prompt-audit-remediation/evidence/baseline-verify.json`
+  - `docs/stories/epics/E07-prompt-audit-remediation/US-039-prompt-audit-remediation/evidence/fixture-okr-artifact.md`
+  - `docs/stories/epics/E07-prompt-audit-remediation/US-039-prompt-audit-remediation/evidence/verify-A.json`
+  - `docs/stories/epics/E07-prompt-audit-remediation/US-039-prompt-audit-remediation/evidence/verify-B.json`
+  - `docs/stories/epics/E07-prompt-audit-remediation/US-039-prompt-audit-remediation/implementation-notes.html`
+  - `docs/stories/epics/E07-prompt-audit-remediation/US-039-prompt-audit-remediation/plan.md`
+  - `docs/templates/mcp/session-context.md`
+  - `scripts/install-harness.ps1`
+  - `scripts/install-harness.sh`
+  - `scripts/lint-mcp-templates.sh`
+  - `scripts/lint-skills.sh`
+  - `scripts/verify-harness.sh`
+
 ## Unreleased
 
 - Removed `PHASE2.md`–`PHASE5.md` plans; their content lives in
