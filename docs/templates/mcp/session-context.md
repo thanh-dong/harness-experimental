@@ -77,6 +77,9 @@ narrows scope. Record the classification with the **`harness_intake`** tool
 
 ### Required before declaring done
 
+- Before reporting progress or done, check each claim against a tool result
+  from this session; report only work you can point to evidence for, and say
+  plainly what was skipped or failed.
 - Story status reflects reality via **`harness_story_update`** (planned →
   in_progress → implemented, or blocker noted), including the proof flags
   `unit`/`integration`/`e2e`/`platform` as numeric booleans (`1`/`0`).

@@ -181,7 +181,9 @@ the recorded signal is the machine-mineable subset.
 
 **Done gate (normal and high-risk).** A story is not done until its
 `implementation-notes.html` exists in the story packet folder and reflects the
-work as shipped. Before declaring done:
+work as shipped. Before reporting progress or done, check each claim against a
+tool result from this session; report only work you can point to evidence for,
+and say plainly what was skipped or failed. Before declaring done:
 
 - The file exists in the packet folder (never the repo root) and every section
   matches reality — fix any section that no longer does before continuing.
@@ -234,7 +236,9 @@ diagram file's structure; add it to the story's `--verify` command.
 **Done gate (normal and high-risk).** A story is not done until every required
 diagram exists, passes `scripts/check-diagrams.sh`, is `reviewed`, and matches
 the shipped code. A missing or `stale` required diagram is an incomplete story,
-exactly like a missing `implementation-notes.html`.
+exactly like a missing `implementation-notes.html`. Before reporting progress
+or done, check each claim against a tool result from this session; report only
+work you can point to evidence for, and say plainly what was skipped or failed.
 
 ## Impact Analysis
 
