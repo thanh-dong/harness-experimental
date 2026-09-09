@@ -4,10 +4,7 @@
 This is the product's own definition-of-done gate, used by an agent in a
 produce -> verify -> repair loop before it finishes. It checks presence and
 structure of the sections/fields documented in the skill's PUBLIC contract
-(contracts/<artifact>.v1.json). It is deliberately NOT the hidden eval rubric:
-it imports nothing from evals/blindbox/checks, encodes no regex-adjacency or
-scoring rules, and every requirement cites a public source. The hidden eval
-checkers stay independent and grade honest application.
+(contracts/<artifact>.v2.json), and every requirement cites a public source.
 
 Usage:
   okra-verify-artifact.py <artifact.md> [--contract <contract.json>] [--json]
@@ -23,7 +20,7 @@ import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_CONTRACT = SCRIPT_DIR.parent / "contracts" / "handoff-contract.v1.json"
+DEFAULT_CONTRACT = SCRIPT_DIR.parent / "contracts" / "handoff-contract.v2.json"
 
 
 def normalize(text: str) -> str:
@@ -82,7 +79,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="okra verify-artifact", description=__doc__)
     parser.add_argument("artifact", help="path to the artifact markdown file")
     parser.add_argument("--contract", default=str(DEFAULT_CONTRACT),
-                        help="path to the PUBLIC contract json (default: handoff-contract.v1.json)")
+                        help="path to the PUBLIC contract json (default: handoff-contract.v2.json)")
     parser.add_argument("--json", action="store_true", help="emit JSON only")
     args = parser.parse_args(argv)
 

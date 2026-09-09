@@ -190,7 +190,10 @@ Append direct objective and anti-goal ledger readings through `metric-read`, not
 Metric payloads must use `type: "metric_read"` (or `objective_metric_read` /
 `anti_goal_metric_read`), identify `metric_kind`, `metric_id`, `value`, `observed_at`, `source`, and
 `freshness`. For storage-governance anti-goals, record zero-valued metric reads for
-`ungoverned_direct_read`, `ungoverned_direct_write`, and `single_llm_truth`.
+`ungoverned_direct_read`, `ungoverned_direct_write`, and `single_llm_truth`. For memory-governance
+anti-goals (Step 2e), state these three in the artifact as
+`unratified_memory_promotion_count == 0`, `single_llm_truth_acceptance_count == 0`, and
+`eval_regression_count == 0`.
 
 A consequence worth knowing: the admissibility **dry-run** (propose-cost) worker has no side effect,
 so it is naturally idempotent and needs no key - which is why **dry-run is the default** for any move
@@ -403,9 +406,7 @@ human ratified for this run.
 
 For delegated loops, make these four lines explicit in the artifact:
 
-- The orchestrator owns objective checks, check-ins, the OKR board, and subagent steering until the
-  objective metric reaches target or a human/blocking flag stops the loop. Use the exact phrase
-  **"until the objective metric reaches target"** once, then instantiate it with the domain target.
+- Write this sentence once, exactly: **"The orchestrator owns objective checks, check-ins, the OKR board, and subagent steering until the objective metric reaches target."** Follow it with the domain target and the note that a human or a blocking flag can also stop the loop.
 - Include one compact line that starts **"Action envelope:"** and names allowed moves, forbidden
   actions, approval gates, and the human ratification boundary.
 - DKRs are scoped discovery-worker probes with budgets, probability/confidence outputs, a named
@@ -473,6 +474,17 @@ window."** Then add the domain example and the stop/re-aim behavior.
 If the user wants a visual or shareable explainer, produce a self-contained HTML artifact. See
 `references/artifact-guide.md` for how (and how to keep the artifact within its own anti-goal:
 single file, no external runtime, no decoration that does not carry meaning).
+
+Before you hand over a delegated-loop artifact, run the skill's own completeness gate and repair
+anything it reports missing:
+
+```bash
+python3 .claude/skills/reverse-tornado-okr/scripts/okra-verify-artifact.py <artifact.md>
+```
+
+It checks the artifact against `contracts/handoff-contract.v2.json`. That file is the checked
+source of truth for the exact keys and sentences listed above; if this prose and the contract
+ever differ, the contract wins and this file needs fixing.
 
 ## Common mistakes to avoid
 

@@ -124,7 +124,9 @@ generic `append ledger` for these reads in scored or delegated runs.
 
 For storage-governance runs, append zero-valued anti-goal metric reads with `type:
 "anti_goal_metric_read"` and metric ids containing `ungoverned_direct_read`,
-`ungoverned_direct_write`, and `single_llm_truth`.
+`ungoverned_direct_write`, and `single_llm_truth`. For memory-governance anti-goals (Step 2e), state
+these three in the artifact as `unratified_memory_promotion_count == 0`,
+`single_llm_truth_acceptance_count == 0`, and `eval_regression_count == 0`.
 
 ## Append-Only Log Contract
 

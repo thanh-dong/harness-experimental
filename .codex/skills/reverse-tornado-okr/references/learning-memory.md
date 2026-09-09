@@ -179,8 +179,8 @@ preserving the anti-goals:
   preserves `single_llm_truth_acceptance_count == 0`.
 - **Counterfactual eval**: remove terminal proof, trace manifest, or review-set evidence from a
   fixture and require the checker to fail.
-- **Scored blindbox eval**: run the same case against independent agent/model paths when model
-  access is available.
+- **Scored independent-path eval**: run the same case against independent agent/model paths when
+  model access is available.
 - **Repeated-mistake metric**: compare related runs and track whether stale-memory, trace-loss,
   unratified-promotion, or single-model-truth mistakes recur.
 

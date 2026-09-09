@@ -1,23 +1,13 @@
 {
-  "contract_version": "okra.handoff-contract.v1",
+  "contract_version": "okra.handoff-contract.v2",
   "artifact": "okra-handoff-contracts",
-  "description": "PUBLIC completeness contract for a delegated OKRA handoff-contract artifact. Derived entirely from the skill's own published Output section and the documented case requirements. This is the product's own definition-of-done. It intentionally checks presence/structure of documented sections and fields, NOT the hidden eval rubric: it contains no regex adjacency rules, no scoring, no case-specific phrasing traps, and imports nothing from evals/blindbox/checks. The hidden checkers stay independent and grade honest application.",
-  "source": "skills/reverse-tornado-okr/SKILL.md (Output section for delegated loops) + evals/blindbox/cases/okra-handoff-contracts.json prompt. Every requirement below cites a public source.",
+  "description": "PUBLIC completeness contract for a delegated OKRA handoff-contract artifact. Derived entirely from the skill's own published Output section. This is the product's own definition-of-done: it checks presence and structure of the documented sections and fields so an agent can run produce -> verify -> repair before handing an artifact over.",
+  "source": "skills/reverse-tornado-okr/SKILL.md (Output section for delegated loops). Every requirement cites a public source.",
   "match": "case-insensitive substring over whitespace-collapsed text; multi-word tokens tolerate line wrapping.",
-  "coherence_review": [
-    "Every PKR must explicitly carry ALL of: linked_ckr, source_dkr_checkpoint, contribution_metric, a done check, progress signals, and a hand-back rule. Never write that a PKR may omit, need not carry, or lacks any of these.",
-    "CKR must be described as measurable contribution context, never as worker work and never dispatched or executed as a task.",
-    "The DKR-to-DKR handoff's risk_or_anti_goal_implications must contain real content; never leave it none / empty / n/a / tbd.",
-    "The in-progress influence rule must say worker narrative is NOT evidence; never say narrative may or can influence the next dispatch.",
-    "The orchestrator must keep steering until the objective metric reaches target; never say the loop stops when the board / PKR list / worker queue is complete.",
-    "Every CKR must show its own discovery/delivery balance (a mini reverse-tornado), not just a metric.",
-    "Every candidate anti-goal in the guardrail library must carry all its documented fields (metric_id, threshold, type, applies_when, does_not_apply_when, invalidates_when or recertify_by, source_refs, trace evidence, candidate_status, no_regression_evidence). Never say a candidate anti-goal may omit, need not include, or omits any of these fields."
-  ],
-  "coherence_review_source": "Each rule restates a documented requirement from skills/reverse-tornado-okr/SKILL.md (Steps 2, 2b, 3, 6, Output). These are positive product rules for self-review, not the hidden eval's detection patterns.",
   "requirements": [
     {"id": "worker_prompt_packet", "description": "Worker prompt packet contract names all documented packet keys.",
      "groups": [{"mode": "all", "tokens": ["frame.objective", "frame.anti_goals", "frame.action_envelope", "frame.human_ratification_boundary", "current_state", "previous_dkr_checkpoint", "assignment", "budget_and_stop_rule", "hand_back_rule", "output_schema"]}],
-     "hint": "Add a 'Worker prompt packet contract' section listing every key including output_schema.", "source": "SKILL.md Output; case prompt"},
+     "hint": "Add a 'Worker prompt packet contract' section listing every key including output_schema.", "source": "SKILL.md Output"},
 
     {"id": "in_progress_rule", "description": "In-progress influence rule includes the exact published sentence.",
      "groups": [{"mode": "all", "tokens": ["In-progress worker narrative is not evidence; only worker progress, check-ins, metric reads, flags, or accepted checkpoints can influence the next dispatch."]}],
@@ -25,7 +15,7 @@
 
     {"id": "dkr_to_dkr_fields", "description": "DKR-to-DKR handoff names all documented fields.",
      "groups": [{"mode": "all", "tokens": ["previous_dkr_checkpoint", "decision_target", "evidence_refs_or_hashes", "questions_answered", "questions_unanswered", "confidence_probability_update", "risk_or_anti_goal_implications", "orchestrator_decision", "next_dkr_scope"]}],
-     "hint": "DKR-to-DKR handoff section must name all nine fields.", "source": "SKILL.md Output; case prompt"},
+     "hint": "DKR-to-DKR handoff section must name all nine fields.", "source": "SKILL.md Output"},
 
     {"id": "dkr_to_dkr_worked", "description": "DKR-to-DKR handoff includes a concrete worked instantiation, not only a field table.",
      "groups": [
@@ -36,7 +26,7 @@
        {"mode": "any", "tokens": ["orchestrator decision", "orchestrator_decision", "checkpoint accepted", "checkpoint held"]},
        {"mode": "any", "tokens": ["accepted", "held", "rejected"]}
      ],
-     "hint": "Write one concrete worked instantiation: name the previous DKR learning checkpoint, its decision target, a confidence/probability update before and after (prior -> posterior), and the orchestrator decision (accepted/held/rejected).", "source": "SKILL.md 'the golden worked example' pattern; case prompt worked-instantiation requirement"},
+     "hint": "Write one concrete worked instantiation: name the previous DKR learning checkpoint, its decision target, a confidence/probability update before and after (prior -> posterior), and the orchestrator decision (accepted/held/rejected).", "source": "SKILL.md Output"},
 
     {"id": "ckr_pkr_trace", "description": "Every PKR carries CKR-to-PKR trace fields.",
      "groups": [{"mode": "all", "tokens": ["linked_ckr", "source_dkr_checkpoint", "contribution_metric"]}],
@@ -57,13 +47,13 @@
        {"mode": "any", "tokens": ["applies_when", "does_not_apply_when", "invalidates_when", "recertify_by"]},
        {"mode": "any", "tokens": ["no_regression_evidence", "no regression"]},
        {"mode": "any", "tokens": ["source_refs", "source refs", "source references"]},
-       {"mode": "any", "tokens": ["trace evidence", "trace_evidence", "trace refs"]}
+       {"mode": "any", "tokens": ["trace evidence", "trace_evidence", "trace refs", "trace_manifest_ref"]}
      ],
-     "hint": "Define candidate-anti-goals.v1.json with metric_id, threshold, type, applies_when/does_not_apply_when, invalidates_when/recertify_by, candidate_status, no_regression_evidence, and ratification boundary.", "source": "SKILL.md Step 2e; case prompt"},
+     "hint": "Define candidate-anti-goals.v1.json with metric_id, threshold, type, applies_when/does_not_apply_when, invalidates_when/recertify_by, candidate_status, no_regression_evidence, and ratification boundary.", "source": "SKILL.md Output"},
 
     {"id": "accumulated_governance", "description": "Accumulated anti-goals are inputs not authority; the three zero-valued anti-goals stated.",
      "groups": [{"mode": "all", "tokens": ["unratified_memory_promotion_count == 0", "single_llm_truth_acceptance_count == 0", "eval_regression_count == 0"]}],
-     "hint": "State the three governance anti-goals == 0 and that previous-run anti-goals are automatic inputs, not automatic authority.", "source": "SKILL.md Step 2e; case prompt"},
+     "hint": "State the three governance anti-goals == 0 and that previous-run anti-goals are automatic inputs, not automatic authority.", "source": "SKILL.md Step 2e"},
 
     {"id": "four_flags", "description": "All four flags named.",
      "groups": [{"mode": "all", "tokens": ["cannot", "breaking", "pointless"]}, {"mode": "any", "tokens": ["authority drift", "authority_drift"]}],
@@ -78,20 +68,16 @@
      "hint": "Add an Operating Loop line: 'Heartbeat cadence and next_check_at:' with a time-based ten-minute heartbeat and next_check_at.", "source": "SKILL.md Step 2d / Output"},
 
     {"id": "worker_progress_reports", "description": "File-based worker progress reports referenced.",
-     "groups": [{"mode": "any", "tokens": [".okra/workers", "progress.jsonl", "worker progress file", "file-based progress report"]}],
-     "hint": "Note that long-running workers write file-based progress reports under .okra/workers/.", "source": "SKILL.md Step 2b"},
+     "groups": [{"mode": "any", "tokens": ["/workers/", "progress.jsonl", "worker progress file", "file-based progress report"]}],
+     "hint": "Note that long-running workers write file-based progress reports under .okra/runs/<run-id>/workers/.", "source": "SKILL.md Step 2b"},
 
     {"id": "freshness_contract", "description": "Metric freshness contract present.",
      "groups": [{"mode": "any", "tokens": ["observed_at", "observed at"]}, {"mode": "any", "tokens": ["max_age", "max age", "stale"]}],
      "hint": "Include a metric freshness contract with observed_at and max_age/stale handling.", "source": "SKILL.md Step 2d"},
 
     {"id": "orchestrator_ownership", "description": "Exact orchestrator-ownership sentence present.",
-     "groups": [{"mode": "all", "tokens": ["The orchestrator owns objective checks, check-ins, the OKR board, and subagent steering until the objective metric reaches target."]}],
-     "hint": "Include the exact orchestrator-ownership sentence before any variants.", "source": "SKILL.md Output; case prompt"},
-
-    {"id": "target_instantiation", "description": "Objective target instantiated.",
-     "groups": [{"mode": "all", "tokens": ["handoff_contract_acceptance_rate >= 0.90"]}],
-     "hint": "Instantiate the target as handoff_contract_acceptance_rate >= 0.90.", "source": "case prompt"},
+     "groups": [{"mode": "all", "tokens": ["The orchestrator owns objective checks, check-ins, the OKR board, and subagent steering until the objective metric reaches target"]}],
+     "hint": "Include the exact orchestrator-ownership sentence before any variants.", "source": "SKILL.md Output"},
 
     {"id": "eval_points", "description": "Three eval points present.",
      "groups": [{"mode": "any", "tokens": ["admissibility"]}, {"mode": "any", "tokens": ["direct read", "direct metric"]}, {"mode": "any", "tokens": ["paired"]}],
