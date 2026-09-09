@@ -12,5 +12,10 @@ Add items with `harness-cli backlog add`, close with `harness-cli backlog close`
 | 01KWP9D1Z3K7MFQQSGPEMJ24C7 | init does not create .harness/events despite SETUP.md | tiny | implemented | init creates events dir | init now creates .harness/events with .gitkeep; SETUP.md git add works verbatim. Eval check 1 pass. |
 | 01KWP9D1ZWCR0VFG79BQ8AAAVD | propose counts duplicate signals on one story as multi-story recurrence | tiny | implemented | recurrence requires >=2 distinct stories | repeated_story_signals dedupes by distinct story id (unattributed signals still count per occurrence); regression test added. Eval check 6 pass. |
 | 01KX85GTNKA32EBV6BWGWHX2EX | CLI rejects option-like text inside quoted argument values |  | proposed |  |  |
+| 01M22AD195EYEPYV1AF705BXEN | GLOSSARY.md defines five terms twice | tiny | proposed |  |  |
+| 01M22AD1AAN6TS71MNMQ6VCWVY | HARNESS_COMPONENTS.md inventory stops before decisions 0008-0012 and schema 005-008 | tiny | proposed |  |  |
+| 01M22AD1BBBBRAYXJH3SH0XDC3 | Two decisions numbered 0007 | tiny | proposed |  |  |
+| 01M22AD1CA8BTV8BT68QX6ZNVW | DIAGRAMS.md line 71 example uses nonexistent story add --diagram | tiny | proposed |  |  |
+| 01M22AD1D4QDMB7A45RA9CVEA7 | TOOL_MAPPING.md has no per-tool description text for MCP hosts | tiny | proposed |  |  |
 | 1 | schema_version test assertions are hardcoded to latest version | tiny | proposed | New migrations stop breaking unrelated tests |  |
 | 2 | Upstream okra-store.sh macOS flock fallback to lagz0ne/okra | tiny | proposed | okra store helpers work identically on macOS and Linux |  |
