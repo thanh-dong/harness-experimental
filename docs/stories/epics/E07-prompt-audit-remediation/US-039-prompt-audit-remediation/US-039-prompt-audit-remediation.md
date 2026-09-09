@@ -2,7 +2,7 @@
 
 ## Status
 
-in_progress
+implemented
 
 ## Lane
 
@@ -58,7 +58,7 @@ Source: `/claude-api prompt-audit` run on 2026-09-07 (31 findings: 12 high,
 | Diagram | File | Status | Reviewed at |
 | --- | --- | --- | --- |
 | D1 blast radius | not required (impact-analysis provider absent) | — | — |
-| D3 sequence | `diagrams/D3-verify-and-lint-flow.md` | draft (corrected after the first agent review; awaiting the second-agent re-review the controller records) | design review |
+| D3 sequence | `diagrams/D3-verify-and-lint-flow.md` | reviewed (agent, 2026-09-09, after one correction round) | design review |
 
 ## References
 

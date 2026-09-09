@@ -4,9 +4,9 @@ Story: US-039
 Kind: sequence
 Source: hand
 Scope: agent edits skill / shim / MCP template → okra-verify-artifact.py by hand on the fixture → story verify runs verify-harness.sh (check 9 reading blocks, check 10 lint-skills), lint-mcp-templates.sh, check-diagrams.sh
-Status: draft
-Reviewed-by: -
-Reviewed-at: -
+Status: reviewed
+Reviewed-by: agent:claude-sonnet-5-d3-reviewer
+Reviewed-at: 2026-09-09
 
 ```mermaid
 sequenceDiagram

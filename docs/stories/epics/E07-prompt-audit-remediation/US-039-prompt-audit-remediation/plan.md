@@ -20,14 +20,14 @@ inside each task so no task needs the report.
   `.harness/events/` and regenerated views with the commit. Commit messages end
   with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
 - Verify-harness baseline before any task: `bash scripts/verify-harness.sh .`
-  must print 8/8 and must still print all checks passing after every task.
+  must print a full score and must still print a full score after every task (8/8 at branch start; 10/10 after checks 9 and 10 landed).
 
 ---
 
 ### Task 1: Baseline fixtures and OKR verifier contract (Phase 0 + Phase 1)
 
 Files: `.claude/skills/reverse-tornado-okr/contracts/handoff-contract.v1.json`
-(rename to `handoff-contract.v2.json`), `.claude/skills/reverse-tornado-okr/scripts/okra-verify-artifact.py`
+(renamed to `handoff-contract.v2.json` by this task), `.claude/skills/reverse-tornado-okr/scripts/okra-verify-artifact.py`
 (DEFAULT_CONTRACT path), `.claude/skills/reverse-tornado-okr/SKILL.md`,
 `.claude/skills/reverse-tornado-okr/references/integrity-store.md`, and the
 `.codex` mirror of each.
