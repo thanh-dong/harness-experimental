@@ -21,20 +21,6 @@ leaves a fresh repo event-backed from genesis, so **commit `.harness/events/`**
 so teammates inherit team state. `harness.db` is a rebuilt cache and stays
 gitignored. Full install/migration/collaboration reference: `docs/EVENT_LOG.md`.
 
-**While this fork is private**, the anonymous curl lines here and in the update
-section return 404. Use the authenticated flow from a `gh`-logged-in machine:
-
-```bash
-gh repo clone thanh-dong/harness-repository-cc /tmp/harness
-gh release download "$(cat /tmp/harness/scripts/harness-cli-release-tag)" \
-  -R thanh-dong/harness-repository-cc -D /tmp/harness-dist
-HARNESS_CLI_BASE_URL="file:///tmp/harness-dist" \
-  /tmp/harness/scripts/install-harness.sh --claude --yes
-# update an existing install: append --merge --refresh-agent-shim
-# (--merge keeps the existing scripts/bin/harness-cli; the dist download is
-#  only needed on fresh installs)
-```
-
 ## 2. Wire the tools
 
 Tools are **capability providers**; a workflow step looks them up by capability,
@@ -154,15 +140,13 @@ safe. Do not use `--override`: it moves the whole `docs/` (your stories and
 decisions included) into a backup and restores only the stock files.
 
 ```bash
-# 1. Add the new files (GOAL_LOOP.md, SETUP.md, calibrate-harness.sh, schema
-#    005/006, and any docs you were missing) and refresh the agent shim block.
+# 1. Add any harness files you are missing and refresh the agent shim block.
 #    Existing files are kept as-is. Drop --claude if this is not a Claude Code repo.
 curl -fsSL "https://raw.githubusercontent.com/thanh-dong/harness-repository-cc/main/scripts/install-harness.sh?$(date +%s)" \
   | bash -s -- --merge --refresh-agent-shim --claude --yes
 
-# 2. Apply new schema — additive and idempotent (adds tool kind/capability/scan
-#    columns, story_signal, and schema v7: ULID ids + event-log cache tables;
-#    existing rows and data are preserved).
+# 2. Apply schema migrations — additive and idempotent, through the current
+#    version in scripts/schema/ (existing rows and data are preserved).
 scripts/bin/harness-cli migrate
 
 # 3. Cut the durable layer over to the git-tracked event log (one-time, proven:

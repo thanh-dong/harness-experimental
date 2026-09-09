@@ -47,8 +47,9 @@ than failing. A `cli` provider needs no agent session at all, which is what
 makes the code-graph half viable in pipeline runners working from a fresh
 clone or worktree. Registration is described once, in `docs/TOOL_REGISTRY.md`
 (the codegraph + c3 examples there are the per-install seed); do not duplicate
-the commands here. `harness.db` is local and gitignored by design, so each
-install runs that seed once.
+the commands here. Registration is an event in the tracked log and travels
+with `git pull`; only the scan status is machine-local, so run `tool check` on
+each machine.
 
 Note: the `.codegraph/` index is machine-local and gitignored (never commit
 it). A fresh clone or worktree rebuilds it with `codegraph init` (seconds) or

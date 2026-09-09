@@ -67,7 +67,8 @@ orchestrator can avoid the same mistake and verify why the learning exists.
 2. **Prepare**: convert relevant candidates into candidate anti-goals, DKR probes, PKR progress
    signals, or action-envelope concerns. They remain candidate-only.
 3. **Run**: keep full active traces in `.okra/runs/<run-id>/`: frame, tree, ledger, flags,
-   check-ins, worker progress, move results, and content hashes.
+   check-ins, worker progress, and move results. Content blobs live in the shared
+   `.okra/content/sha256/`; the run dir holds only their hashes.
 4. **Terminalize**: before marking a run complete, write a terminal record with objective and
    anti-goal metric refs, unresolved flags, accepted DKR checkpoints, acceptance evidence, and
    whether the run reached target, stopped, or needs human action.

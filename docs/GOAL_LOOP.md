@@ -42,8 +42,10 @@ tool, not compiled into the harness, and may be absent on any machine.
 | reverse-tornado-okr (Okra) | Frame the goal + anti-goal, run the discovery→steer loop, raise flags | `skill` | `.claude/skills/reverse-tornado-okr` | Claude Code / Codex skill |
 
 Registration is described once, in `docs/TOOL_REGISTRY.md` (the per-install
-seed); do not duplicate the command here. `harness.db` is local and gitignored,
-so each install runs that seed once. A non-Claude agent that cannot run the skill
+seed); do not duplicate the command here. `tool register` appends a
+`tool.register` event to the tracked log, so one teammate's registration
+travels with `git pull`; only the scan result (`status`, `checked_at`) is
+machine-local, so run `tool check` on each machine. A non-Claude agent that cannot run the skill
 treats it as absent and skips the loop.
 
 ## Activation And Skip Rule

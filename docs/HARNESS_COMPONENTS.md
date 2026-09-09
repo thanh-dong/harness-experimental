@@ -42,7 +42,7 @@ Status values:
 | Tool implementations | `scripts/bin/harness-cli`, `crates/harness-cli/*`, `scripts/schema/001-init.sql`, `scripts/schema/002-story-verify.sql` | Covered | The Rust CLI is the primary durable-layer implementation and stable repo-local entrypoint. |
 | Middleware | installer safety logic, feature intake workflow | Partial | The installer and intake process mediate work, but there is no runtime middleware enforcing policies. |
 | Skills | `docs/templates/*`, `docs/FEATURE_INTAKE.md`, `docs/CONTEXT_RULES.md`, `docs/TRACE_SPEC.md` | Partial | Reusable procedures exist as markdown, not executable or installable agent skills. |
-| Sub-agents | None in this repository | Missing | No delegated specialist agents or sub-agent protocols exist. |
+| Sub-agents | `CLAUDE.md` (Fable subagent rule); Claude Code Agent tool | Partial | Subagents are used for hard debugging, architecture, and verification; no repo-defined agent files yet. |
 | Long-term memory | `harness.db`, `docs/decisions/*`, `docs/stories/*`, `docs/HARNESS_BACKLOG.md`, `docs/GLOSSARY.md` | Covered | Durable records and markdown decisions preserve task history and project vocabulary. |
 
 ## File Inventory
@@ -58,10 +58,6 @@ one Runtime Substrate responsibility.
 | `CONTRIBUTING.md` | Intervention recording | Project memory |
 | `Cargo.toml` | Tool access | Verification |
 | `Cargo.lock` | Tool access | Verification |
-| `PHASE2.md` | Task specification | Observability, context selection |
-| `PHASE3.md` | Task specification | Observability, verification, entropy auditing |
-| `PHASE4.md` | Task specification | Verification, observability, task state |
-| `PHASE5.md` | Task specification | Verification, entropy auditing, intervention recording |
 | `crates/harness-cli/Cargo.toml` | Tool access | Verification |
 | `crates/harness-cli/src/main.rs` | Tool access | Tool implementation |
 | `crates/harness-cli/src/domain.rs` | Tool access | Task state, verification |
@@ -126,7 +122,6 @@ one Runtime Substrate responsibility.
 | `docs/templates/high-risk-story/execplan.md` | Task state | Verification |
 | `docs/templates/high-risk-story/validation.md` | Verification | Failure attribution |
 | `scripts/README.md` | Tool access | Context selection |
-| `scripts/bin/harness-cli` | Tool access | Task state, observability |
 | `scripts/bin/harness-cli` | Tool access | Task state, observability |
 | `scripts/install-harness.sh` | Tool access | Permissions |
 | `scripts/build-harness-cli-release.sh` | Verification | Tool access |
