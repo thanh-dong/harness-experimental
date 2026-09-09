@@ -8,18 +8,14 @@ write lands in this branch's committed event log. The gate rules and obligations
 below are identical to the bash flavor — only the invocation surface differs. The
 tool ↔ CLI mapping lives in `docs/templates/mcp/TOOL_MAPPING.md`.
 
-Before work, read the same context the bash flavor requires:
+Before work, in every lane:
 
-- `README.md`
-- `docs/HARNESS.md`
-- `docs/FEATURE_INTAKE.md`
-- `docs/ARCHITECTURE.md`
-- `docs/CONTEXT_RULES.md`
-- `docs/TOOL_REGISTRY.md`
-- `docs/GOAL_LOOP.md`
+- read `docs/FEATURE_INTAKE.md`
+- call `harness_query_matrix` — it is the behavior-to-proof control panel
 
-Then call `harness_query_matrix` before starting work — it is the
-behavior-to-proof control panel.
+Then read the lane-dependent docs that `docs/CONTEXT_RULES.md` prescribes for
+your lane (`README.md`, `docs/HARNESS.md`, `docs/ARCHITECTURE.md`,
+`docs/TOOL_REGISTRY.md`, `docs/GOAL_LOOP.md`, product docs, stories, decisions).
 
 Before a step that could use an external tool, call `harness_query_tools` with
 `capability: <name>`, `status: "present"` to see what is equipped; an absent

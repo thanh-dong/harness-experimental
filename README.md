@@ -134,7 +134,8 @@ scripts/bin/harness-cli --version
 scripts/bin/harness-cli query matrix
 
 # 5. Read the entry points before changing code
-#    AGENTS.md, docs/HARNESS.md, docs/FEATURE_INTAKE.md, docs/GOAL_LOOP.md
+#    read docs/FEATURE_INTAKE.md, run query matrix, then the docs
+#    docs/CONTEXT_RULES.md prescribes for your lane
 ```
 
 On Windows the CLI is called as `.\scripts\bin\harness-cli.exe`.

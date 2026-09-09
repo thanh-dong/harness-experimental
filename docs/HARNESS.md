@@ -382,7 +382,8 @@ Agents should ask for human confirmation before:
 A task is done only when:
 
 - The requested change is completed or the blocker is documented.
-- Relevant docs, stories, and test matrix entries remain current.
+- Relevant docs and stories remain current, and story proof flags are current
+  through `story update` (the matrix view is regenerated from them).
 - Every change diagram the lane and flags require exists under
   `<packet>/diagrams/`, passes `bash scripts/check-diagrams.sh`, is
   `reviewed`, and matches shipped code (`docs/DIAGRAMS.md`).

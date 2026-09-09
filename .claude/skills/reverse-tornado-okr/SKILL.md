@@ -102,6 +102,9 @@ Decompose work into exactly three kinds. Keep them distinct; blurring them is wh
 
 The loop runs as an **orchestrator** directing disposable **workers**. This split is not cosmetic -
 it carries the authority lines. Each tier hands control *up* when it reaches the edge of its authority.
+The orchestrator does not stop when a board, branch, or worker queue is complete; it keeps steering
+until the objective metric reaches target, a human changes or stops the frame, or a blocking flag
+needs a human.
 
 The goal is that no tier ever acts past its own authority, and the gate before any dispatch is that
 the orchestrator holds the frame read-only, has accepted the supporting DKR learning checkpoint for
@@ -267,6 +270,9 @@ If the user wants a visual or shareable explainer, produce a self-contained HTML
 `references/artifact-guide.md` for how (and how to keep the artifact within its own anti-goal:
 single file, no external runtime, no decoration that does not carry meaning).
 
+For a delegated loop the artifact must also satisfy every line under `## Contract` below; run the
+gate before handing it over.
+
 ## The four things that must hold
 
 - The objective and every anti-goal each have a metric with a number.
@@ -290,7 +296,7 @@ The nineteen requirements, one line each, with the tokens the artifact must cont
 - `worker_prompt_packet` - all of: `frame.objective`, `frame.anti_goals`, `frame.action_envelope`, `frame.human_ratification_boundary`, `current_state`, `previous_dkr_checkpoint`, `assignment`, `budget_and_stop_rule`, `hand_back_rule`, `output_schema`.
 - `in_progress_rule` - the exact sentence: **"In-progress worker narrative is not evidence; only worker progress, check-ins, metric reads, flags, or accepted checkpoints can influence the next dispatch."**
 - `dkr_to_dkr_fields` - all of: `previous_dkr_checkpoint`, `decision_target`, `evidence_refs_or_hashes`, `questions_answered`, `questions_unanswered`, `confidence_probability_update`, `risk_or_anti_goal_implications`, `orchestrator_decision`, `next_dkr_scope`.
-- `dkr_to_dkr_worked` - a concrete worked instantiation: name the previous DKR learning checkpoint, its decision target, a confidence/probability update before and after (prior -> posterior), and the orchestrator decision (accepted/held/rejected).
+- `dkr_to_dkr_worked` - a concrete worked instantiation, six groups, one token from each: "previous dkr learning checkpoint" / "prior dkr" / "previous dkr checkpoint"; "decision target" / "decide whether to"; "confidence" / "probability" / "posterior"; "prior " / "posterior" / "->" / "before and after" / "before/after"; "orchestrator decision" / `orchestrator_decision` / "checkpoint accepted" / "checkpoint held"; "accepted" / "held" / "rejected".
 - `ckr_pkr_trace` - every PKR carries: `linked_ckr`, `source_dkr_checkpoint`, `contribution_metric`.
 - `ckr_not_worker_work` - one of: "not worker work", "not a worker job", "not dispatched as work", "not subagent work", "measurable contribution context, not", "context and measurement, not".
 - `pkr_handback` - one of: "hand back on unknown", "hands back on unknown", "hand-back on unknown", "hand back on newly discovered", "hand back when new uncertainty", "hand back instead of researching".

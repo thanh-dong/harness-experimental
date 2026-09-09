@@ -302,8 +302,8 @@ context-load time. Never wrap them in backticks; that disables the import.
 Also run `scripts/bin/harness-cli query matrix` before starting work.
 
 Lane-dependent context (`README.md`, `docs/HARNESS.md`, `docs/ARCHITECTURE.md`,
-`docs/CONTEXT_RULES.md`, product docs, stories, decisions) is intentionally not
-imported — read it per lane, as `docs/CONTEXT_RULES.md` prescribes.
+product docs, stories, decisions) is intentionally not imported — read it per
+lane, as `docs/CONTEXT_RULES.md` prescribes.
 <!-- HARNESS:END -->
 EOF
 }

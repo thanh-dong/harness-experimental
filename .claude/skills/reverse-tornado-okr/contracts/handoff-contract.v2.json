@@ -2,20 +2,20 @@
   "contract_version": "okra.handoff-contract.v2",
   "artifact": "okra-handoff-contracts",
   "description": "PUBLIC completeness contract for a delegated OKRA handoff-contract artifact. Derived entirely from the skill's own published Output section. This is the product's own definition-of-done: it checks presence and structure of the documented sections and fields so an agent can run produce -> verify -> repair before handing an artifact over.",
-  "source": "skills/reverse-tornado-okr/SKILL.md (Output section for delegated loops). Every requirement cites a public source.",
+  "source": "skills/reverse-tornado-okr/SKILL.md (Contract section for delegated loops). Every requirement cites a public source.",
   "match": "case-insensitive substring over whitespace-collapsed text; multi-word tokens tolerate line wrapping.",
   "requirements": [
     {"id": "worker_prompt_packet", "description": "Worker prompt packet contract names all documented packet keys.",
      "groups": [{"mode": "all", "tokens": ["frame.objective", "frame.anti_goals", "frame.action_envelope", "frame.human_ratification_boundary", "current_state", "previous_dkr_checkpoint", "assignment", "budget_and_stop_rule", "hand_back_rule", "output_schema"]}],
-     "hint": "Add a 'Worker prompt packet contract' section listing every key including output_schema.", "source": "SKILL.md Output"},
+     "hint": "Add a 'Worker prompt packet contract' section listing every key including output_schema.", "source": "SKILL.md Contract"},
 
     {"id": "in_progress_rule", "description": "In-progress influence rule includes the exact published sentence.",
      "groups": [{"mode": "all", "tokens": ["In-progress worker narrative is not evidence; only worker progress, check-ins, metric reads, flags, or accepted checkpoints can influence the next dispatch."]}],
-     "hint": "Include the exact in-progress influence sentence in its own section.", "source": "SKILL.md Output"},
+     "hint": "Include the exact in-progress influence sentence in its own section.", "source": "SKILL.md Contract"},
 
     {"id": "dkr_to_dkr_fields", "description": "DKR-to-DKR handoff names all documented fields.",
      "groups": [{"mode": "all", "tokens": ["previous_dkr_checkpoint", "decision_target", "evidence_refs_or_hashes", "questions_answered", "questions_unanswered", "confidence_probability_update", "risk_or_anti_goal_implications", "orchestrator_decision", "next_dkr_scope"]}],
-     "hint": "DKR-to-DKR handoff section must name all nine fields.", "source": "SKILL.md Output"},
+     "hint": "DKR-to-DKR handoff section must name all nine fields.", "source": "SKILL.md Contract"},
 
     {"id": "dkr_to_dkr_worked", "description": "DKR-to-DKR handoff includes a concrete worked instantiation, not only a field table.",
      "groups": [
@@ -26,11 +26,11 @@
        {"mode": "any", "tokens": ["orchestrator decision", "orchestrator_decision", "checkpoint accepted", "checkpoint held"]},
        {"mode": "any", "tokens": ["accepted", "held", "rejected"]}
      ],
-     "hint": "Write one concrete worked instantiation: name the previous DKR learning checkpoint, its decision target, a confidence/probability update before and after (prior -> posterior), and the orchestrator decision (accepted/held/rejected).", "source": "SKILL.md Output"},
+     "hint": "Write one concrete worked instantiation: name the previous DKR learning checkpoint, its decision target, a confidence/probability update before and after (prior -> posterior), and the orchestrator decision (accepted/held/rejected).", "source": "SKILL.md Contract"},
 
     {"id": "ckr_pkr_trace", "description": "Every PKR carries CKR-to-PKR trace fields.",
      "groups": [{"mode": "all", "tokens": ["linked_ckr", "source_dkr_checkpoint", "contribution_metric"]}],
-     "hint": "Each PKR must carry linked_ckr, source_dkr_checkpoint, and contribution_metric.", "source": "SKILL.md Output"},
+     "hint": "Each PKR must carry linked_ckr, source_dkr_checkpoint, and contribution_metric.", "source": "SKILL.md Contract"},
 
     {"id": "ckr_not_worker_work", "description": "Artifact states CKR is measurable contribution context, not worker work.",
      "groups": [{"mode": "any", "tokens": ["not worker work", "not a worker job", "not dispatched as work", "not subagent work", "measurable contribution context, not", "context and measurement, not"]}],
@@ -38,7 +38,7 @@
 
     {"id": "pkr_handback", "description": "PKR discovery hand-back line present.",
      "groups": [{"mode": "any", "tokens": ["hand back on unknown", "hands back on unknown", "hand-back on unknown", "hand back on newly discovered", "hand back when new uncertainty", "hand back instead of researching"]}],
-     "hint": "Add a line: PKRs hand back on unknown discovery instead of researching unknowns inside execution.", "source": "SKILL.md Output"},
+     "hint": "Add a line: PKRs hand back on unknown discovery instead of researching unknowns inside execution.", "source": "SKILL.md Contract"},
 
     {"id": "candidate_antigoal_library", "description": "Accumulated anti-goals as a candidate guardrail library with governance fields.",
      "groups": [
@@ -49,7 +49,7 @@
        {"mode": "any", "tokens": ["source_refs", "source refs", "source references"]},
        {"mode": "any", "tokens": ["trace evidence", "trace_evidence", "trace refs", "trace_manifest_ref"]}
      ],
-     "hint": "Define candidate-anti-goals.v1.json with metric_id, threshold, type, applies_when/does_not_apply_when, invalidates_when/recertify_by, candidate_status, no_regression_evidence, and ratification boundary.", "source": "SKILL.md Output"},
+     "hint": "Define candidate-anti-goals.v1.json with metric_id, threshold, type, applies_when/does_not_apply_when, invalidates_when/recertify_by, candidate_status, no_regression_evidence, and ratification boundary.", "source": "SKILL.md Contract"},
 
     {"id": "accumulated_governance", "description": "Accumulated anti-goals are inputs not authority; the three zero-valued anti-goals stated.",
      "groups": [{"mode": "all", "tokens": ["unratified_memory_promotion_count == 0", "single_llm_truth_acceptance_count == 0", "eval_regression_count == 0"]}],
@@ -69,7 +69,7 @@
 
     {"id": "worker_progress_reports", "description": "File-based worker progress reports referenced.",
      "groups": [{"mode": "any", "tokens": ["/workers/", "progress.jsonl", "worker progress file", "file-based progress report"]}],
-     "hint": "Note that long-running workers write file-based progress reports under .okra/runs/<run-id>/workers/.", "source": "SKILL.md Step 2b"},
+     "hint": "Note that long-running workers write file-based progress reports under .okra/runs/<run-id>/workers/.", "source": "SKILL.md Contract"},
 
     {"id": "freshness_contract", "description": "Metric freshness contract present.",
      "groups": [{"mode": "any", "tokens": ["observed_at", "observed at"]}, {"mode": "any", "tokens": ["max_age", "max age", "stale"]}],
@@ -77,7 +77,7 @@
 
     {"id": "orchestrator_ownership", "description": "Exact orchestrator-ownership sentence present.",
      "groups": [{"mode": "all", "tokens": ["The orchestrator owns objective checks, check-ins, the OKR board, and subagent steering until the objective metric reaches target"]}],
-     "hint": "Include the exact orchestrator-ownership sentence before any variants.", "source": "SKILL.md Output"},
+     "hint": "Include the exact orchestrator-ownership sentence before any variants.", "source": "SKILL.md Contract"},
 
     {"id": "eval_points", "description": "Three eval points present.",
      "groups": [{"mode": "any", "tokens": ["admissibility"]}, {"mode": "any", "tokens": ["direct read", "direct metric"]}, {"mode": "any", "tokens": ["paired"]}],

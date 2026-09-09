@@ -42,7 +42,7 @@ Status values:
 | Tool implementations | `scripts/bin/harness-cli`, `crates/harness-cli/*`, `scripts/schema/001-init.sql`, `scripts/schema/002-story-verify.sql` | Covered | The Rust CLI is the primary durable-layer implementation and stable repo-local entrypoint. |
 | Middleware | installer safety logic, feature intake workflow | Partial | The installer and intake process mediate work, but there is no runtime middleware enforcing policies. |
 | Skills | `docs/templates/*`, `docs/FEATURE_INTAKE.md`, `docs/CONTEXT_RULES.md`, `docs/TRACE_SPEC.md` | Partial | Reusable procedures exist as markdown, not executable or installable agent skills. |
-| Sub-agents | `CLAUDE.md` (Fable subagent rule); Claude Code Agent tool | Partial | Subagents are used for hard debugging, architecture, and verification; no repo-defined agent files yet. |
+| Sub-agents | `CLAUDE.md` (Fable subagent rule); Claude Code Agent tool | Partial | Subagents are used for hard debugging, architecture, and independent review; no repo-defined agent files yet. |
 | Long-term memory | `harness.db`, `docs/decisions/*`, `docs/stories/*`, `docs/HARNESS_BACKLOG.md`, `docs/GLOSSARY.md` | Covered | Durable records and markdown decisions preserve task history and project vocabulary. |
 
 ## File Inventory
