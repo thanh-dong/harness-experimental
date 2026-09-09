@@ -4,7 +4,7 @@
 REPO="${1:?usage: verify-harness.sh <repo-root>}"
 H="$REPO/scripts/bin/harness-cli"
 CL=$(mktemp -d)/clone
-SCORE=0; TOTAL=8
+SCORE=0; TOTAL=9
 pass() { SCORE=$((SCORE+1)); echo "PASS  $1"; }
 fail() { echo "FAIL  $1 -- $2"; }
 T0=$(date +%s)
@@ -45,6 +45,33 @@ if (cd "$CL" && scripts/bin/harness-cli intake --type maintenance_request --summ
 # 8. intervention --type review accepted in clone (schema 008 live)
 (cd "$CL" && scripts/bin/harness-cli intervention add --type review --source agent --description "verify" >/dev/null 2>&1) \
   && pass "intervention --type review (008)" || fail "intervention review" "rejected"
+
+# 9. the "## Harness" reading rule is one text in three places: AGENTS.md and
+# the two installer templates (scripts/install-harness.sh, .ps1) each embed a
+# copy inside <!-- HARNESS:BEGIN/END --> markers. They must read identically
+# once the macOS/Linux-vs-Windows path alternative and the .exe suffix --
+# the one deliberate platform difference -- are normalized away.
+harness_block() {
+  awk '/<!-- HARNESS:BEGIN -->/ { f=1; next } /<!-- HARNESS:END -->/ { if (f) exit } f' "$1"
+}
+normalize_harness_block() {
+  tr -s '[:space:]' ' ' | sed -E 's/ on macOS\/Linux,? or `[^`]*` on Windows//g' | sed -E 's/\.exe//g' | sed -E 's/^ +| +$//'
+}
+A_RAW="$REPO/AGENTS.md"
+S_RAW="$REPO/scripts/install-harness.sh"
+P_RAW="$REPO/scripts/install-harness.ps1"
+A_TXT="$(harness_block "$A_RAW" | normalize_harness_block)"
+S_TXT="$(harness_block "$S_RAW" | normalize_harness_block)"
+P_TXT="$(harness_block "$P_RAW" | normalize_harness_block)"
+if [ -n "$A_TXT" ] && [ "$A_TXT" = "$S_TXT" ] && [ "$A_TXT" = "$P_TXT" ]; then
+  pass "Harness reading rule identical (AGENTS.md, install-harness.sh, install-harness.ps1)"
+else
+  DIFFS=""
+  [ "$A_TXT" != "$S_TXT" ] && DIFFS="$DIFFS AGENTS.md!=install-harness.sh"
+  [ "$A_TXT" != "$P_TXT" ] && DIFFS="$DIFFS AGENTS.md!=install-harness.ps1"
+  [ "$S_TXT" != "$P_TXT" ] && DIFFS="$DIFFS install-harness.sh!=install-harness.ps1"
+  fail "Harness reading rule" "texts differ:$DIFFS"
+fi
 
 rm -rf "$(dirname "$CL")"
 T1=$(date +%s)
