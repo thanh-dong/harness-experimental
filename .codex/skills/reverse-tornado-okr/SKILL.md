@@ -103,51 +103,10 @@ Decompose work into exactly three kinds. Keep them distinct; blurring them is wh
 The loop runs as an **orchestrator** directing disposable **workers**. This split is not cosmetic -
 it carries the authority lines. Each tier hands control *up* when it reaches the edge of its authority.
 
-**Orchestrator - the loop's brain.** Holds the frame read-only (objective, anti-goal, thresholds,
-metric contracts, and action envelope - all human-set). It owns the OKR board, governs check-ins,
-decides the next move, runs the three-point anti-goal eval (especially admissibility, *before*
-dispatch), spawns and budgets workers, reads the direct objective/CKR/anti-goal metrics, raises the
-  flags, and is the only part that talks to the human. It also owns the **DKR learning gate**: no CKR
-  or PKR is promoted onto the working board until a DKR worker has returned a learning checkpoint with
-  a decision target, evidence, probability/confidence updates, and risk/anti-goal implications. The
-  checkpoint must make the next steering decision safer or clearer; "we learned things" is not enough.
-  The orchestrator steers within the cone. It never
-executes work itself and never edits the frame. It also does **not** stop because a board, branch,
-PKR list, or worker queue is complete; it keeps checking, steering, and dispatching until the
-objective target is achieved, a human changes/stops the frame, or a blocking flag requires human
-resolution. Every serious artifact should state this loop-ownership rule explicitly.
-
-**Workers - the hands.** Scoped, disposable, parallelizable. Two kinds, matching the executable
-units. There is no CKR worker; CKR remains orchestrator-owned context.
-
-- **Discovery worker** runs a single scoped DKR probe - spends its turn budget, watches its own
-  learning, writes progress reports, and returns a learning checkpoint with the decision it was meant
-  to unlock, evidence, probability/confidence updates, risk/anti-goal implications, candidate CKRs,
-  or empty.
-- **Progression worker** executes one PKR/task - do-and-check, within its scope only.
-
-The cardinal worker rule: **a worker that hits an unknown mid-run does not improvise - it hands back
-to the orchestrator**, which decides whether to spawn a discovery worker. A worker's authority ends
-at the edge of its scope. It cannot screen its own moves against the anti-goal (that is the
-orchestrator's admissibility job), cannot decide to call the human (it reports; the orchestrator
-decides if it is a flag), and cannot change scope.
-
-Workers must report progress in a durable place. For long runs, use an explicit run store such as
-`.okra/runs/<run-id>/workers/<worker-id>/progress.jsonl`, written at each worker finish, when an
-unknown is hit, and on a timed heartbeat. Ten minutes is a good default heartbeat for live subagent
-work unless the human sets a different cadence.
-
-Every worker dispatch should be a **worker prompt packet**, not a raw continuation of the previous
-worker's chat. The packet includes the read-only frame, current state, previous DKR checkpoint refs
-when relevant, the exact assignment, budget and stop rule, hand-back rule, allowed and forbidden
-actions, and output schema. In-progress work may influence the next prompt only through governed
-records: worker progress files, check-ins, metric reads, flags, move results, accepted DKR
-checkpoints, and stored evidence refs. A freeform worker narrative or model self-report can point to
-evidence, but is not evidence.
-
-The authority gradient, made concrete:
-`human owns the frame -> orchestrator works inside it and makes the loop's calls -> workers execute
-inside their scope and hand back at their edge.`
+The goal is that no tier ever acts past its own authority, and the gate before any dispatch is that
+the orchestrator holds the frame read-only, has accepted the supporting DKR learning checkpoint for
+anything it is about to promote, and sends a self-contained worker prompt packet to a worker that
+will hand back rather than improvise when it reaches the edge of its scope.
 
 ## Step 2c - Make the run idempotent (set up storage first)
 
@@ -155,53 +114,11 @@ Before running any move, set up storage so the loop is **safe to interrupt and r
 can step in anytime, a worker can crash, a run can restart. Without it, re-running replays side
 effects: the discount applies twice, the expense double-counts against the wall.
 
-The rule: every state-changing **move** gets a stable **idempotency key**; the store records whether
-it ran and what it produced; the orchestrator checks the store *before* dispatch and writes the
-outcome *after*. Re-running a known key returns the stored result instead of repeating the effect.
-
-Persist five things: the **frame** (write-once, read-only - this is also what freezes the human-set
-frame so the loop cannot rewrite it), the **tree**, per-move **results** (write-once per key), an
-**append-only ledger** of direct metric and anti-goal readings (never overwritten, so guardrail
-history cannot be quietly rewritten greener), and raised **flags**.
-
-When a run produces many files, artifacts, check-ins, or progress summaries, add the integrity rule:
-**append-only records are the source of truth; status/progress files are generated views.** Store
-important content by hash, append check-ins and flags as records, and verify the store before resume
-or before reporting success. A stale or contradictory generated status is a signal, not evidence.
-When multiple OKRA loops may run in one workspace, keep `.okra/content/sha256` shared but put each
-loop's mutable state under `.okra/runs/<run-id>/`; do not let concurrent loops share one ledger,
-flag log, check-in log, worker directory, move-result directory, or generated status.
-In delegated runs with a run store, avoid ungoverned direct reads and writes: important content
-reads should be by content hash or recorded source check-in, and important writes should go through
-the store helper or record target path plus content hash. Also avoid **single LLM truth**: an
-agent's own final answer is not proof of progress, storage integrity, or governed read/write. Accept
-claims only when backed by deterministic evidence, store records, hashes, changed-path checks,
-human ratification, or independent review.
-
-For delegated run stores, use the exact frame/tree contract so verification can catch drift.
-`frame/frame.v1.json` must include `frame_version`, `frame_hash`, `objective`, `anti_goals`,
-`metric_contracts`, `action_envelope`, and human approval or ratification evidence.
-`tree/tree.v1.json` must include `tree_version`, `frame_version`, `orchestrator`, `dkrs`, `ckrs`,
-and `pkrs`. The `orchestrator` entry must say it owns **objective checks** and **subagent
-steering**; DKR and PKR entries are worker scopes; CKR entries are measurable context. When the
-helper is available, write these through `write-frame` and `write-tree`, then run `verify` before
-reporting success.
-Append direct objective and anti-goal ledger readings through `metric-read`, not generic `append`.
-Metric payloads must use `type: "metric_read"` (or `objective_metric_read` /
-`anti_goal_metric_read`), identify `metric_kind`, `metric_id`, `value`, `observed_at`, `source`, and
-`freshness`. For storage-governance anti-goals, record zero-valued metric reads for
-`ungoverned_direct_read`, `ungoverned_direct_write`, and `single_llm_truth`. For memory-governance
-anti-goals (Step 2e), state these three in the artifact as
-`unratified_memory_promotion_count == 0`, `single_llm_truth_acceptance_count == 0`, and
-`eval_regression_count == 0`.
-
-A consequence worth knowing: the admissibility **dry-run** (propose-cost) worker has no side effect,
-so it is naturally idempotent and needs no key - which is why **dry-run is the default** for any move
-whose anti-goal cost cannot be known up front. Only the *committing* move is keyed and stored.
-
-For the full storage schema, key construction, and resume sequence, read
-`references/storage-idempotency.md`. For a lightweight file layout, generated-status rule, and bash
-helper, read `references/integrity-store.md`.
+The goal is that replaying the run never replays its side effects, and the gate before the first
+committing move is that the run store exists with a write-once frame, a tree, per-key move results,
+an append-only metric and flag ledger, and a checked idempotency key for that move; the schema, key
+construction, resume sequence, and a bash helper are in `references/storage-idempotency.md` and
+`references/integrity-store.md`.
 
 ## Step 2d - Keep the run fresh (the ritual clock)
 
@@ -209,28 +126,11 @@ If the run continues across turns or time, define the update ritual before dispa
 orchestrator needs a **metric freshness contract** for every objective, CKR, and anti-goal metric:
 source of truth, owner, exact definition, read method, `observed_at`, `recorded_at`, `max_age`, lag
 window, and missing-data policy.
-Each metric read must carry an explicit freshness classification in one compact row or sentence:
-`observed_at=<timestamp> -> status=fresh|stale against max_age=<limit>`. If a copied or last-known
-reading is outside the limit, write that date next to `stale` and the limit, for example
-`2026-06-15 ... stale against the 72-hour max_age`.
 
-Then set the clock: start-of-turn freshness check, pre-dispatch admissibility, post-move metric
-read, end-of-turn status write, and an idle heartbeat when no worker finishes. Every round should
-write `current_round`, open flags, last metric read, and `next_check_at`. Do not dispatch committing
-work on stale metrics unless the human explicitly waives that stale state.
-
-For delegated subagent work, make check-ins both event-based and time-based: worker completion,
-unknown discovery, flag opening, and a default ten-minute heartbeat for long-running workers. Each
-check-in recollects DKR learning, reads file-based worker progress reports, updates CKR/PKR
-candidate status, and decides whether to continue, spawn discovery, pause, or escalate.
-Each steering check-in must also show its value, not just that it happened: the inbound signal it
-consumed, the decision/state/allocation change it made, and the expected or direct objective,
-anti-goal, uncertainty, or waste-reduction effect. Track this with a steering-value metric such as
-`steering_value_score` or `valuable_steering_decision_count`, plus a zero-valued anti-goal such as
-`no_value_checkin_count == 0`. A check-in that only says "continue" without evidence of why that was
-the right steering move is process theater, not loop control.
-
-For the operating-loop fields, lag handling, and flag lifecycle, read
+The goal is that every steering decision rests on a reading recent enough to trust, and the gate
+before dispatching committing work is that each objective, CKR, and anti-goal metric reads fresh
+against its `max_age` and the round has recorded `current_round`, open flags, the last metric read,
+and `next_check_at`; the operating-loop fields, lag handling, and flag lifecycle are in
 `references/operating-loop.md`.
 
 ## Step 2e - Learn, heal, and optimize from OKRA memory
@@ -243,44 +143,10 @@ CKRs/PKRs only after accepted learning checkpoints, enforces PKR progress signal
 whose anti-goal cost is too high. It may re-rank, fund, hold, or stop work inside the ratified frame;
 it does not change the frame.
 
-Treat DKR as the loop's learning allocator, not as background research. Each DKR should reduce the
-next allocation decision: which path to fund, which candidate CKR/PKR to promote, which move to
-dry-run, which branch to pause, which anti-goal uncertainty to inspect, or when to raise `cannot`.
-That is how the loop self-heals: flags, vetoes, flat metrics, worker unknowns, and budget exhaustion
-become new steering evidence instead of silent failure.
-
-At check-ins and at end-of-run, extract OKRA-specific learning records: traps hit or nearly hit,
-avoidances/vetoes that worked, misconceptions corrected, optimization candidates, reusable
-candidate anti-goals, source run references, evidence hashes or metric reads, confidence, context
-where the learning applies, and no-regression evidence. Run-local learning repairs the current loop;
-cross-run learning seeds the next loop's candidate frame, anti-goals, DKR probes, and action
-envelope. Previous-run memories are automatic inputs, not automatic authority: load them when
-available, but keep them candidate-only until the current run has evidence and the human ratifies
-any frame or guardrail change.
-
-Accumulated anti-goals should be represented as a candidate guardrail library, such as
-`candidate-anti-goals.v1.json`, not as hidden defaults. Each candidate anti-goal needs a metric,
-threshold, type, context fit, invalidation or recertification rule, source refs or hashes,
-candidate status, trace evidence, no-regression evidence, and ratification status. At run start the
-orchestrator may propose relevant entries as candidate frame inputs, DKR probes, PKR progress
-signals, or action-envelope concerns; it must not silently promote them into the active frame.
-
-A completed run must be **terminalized** before its learning is reused. Record the terminal state,
-objective and anti-goal metric refs, unresolved flags, accepted DKR checkpoints, retained trace
-manifest, consolidation output, continuation packet, and second-opinion evidence. The run may shed
-bulky details only after the retained traces can still explain why each learned trap, avoidance,
-misconception, optimization, or candidate anti-goal exists.
-
-This is not generic memory. It is memory optimized for running OKRs in a particular context. Accept
-a learned anti-goal or optimization only when backed by deterministic evidence, append-only store
-records, hashes, changed-path or eval results, human ratification, or structured independent review.
-For judgement-heavy memory promotion, one review narrative is not enough: require human ratification
-or at least two independent review artifacts tied to prompt/source hashes. If reuse would make evals
-worse, rests on one LLM's narrative, lacks current-context fit, loses its retained trace, or tries to
-alter a human-owned frame without ratification, hold it as a candidate and open the right flag.
-
-For the learning-memory record shape and no-regression gates, read
-`references/learning-memory.md`.
+The goal is that the loop gets better across runs without letting memory quietly take authority, and
+the gate before any learned anti-goal, optimization, or reused memory is used is that it is backed by
+deterministic evidence and human ratification and its source run was terminalized; the record shape
+and no-regression gates are in `references/learning-memory.md`.
 
 ## Step 3 - The cardinal rule: no cascade
 
@@ -397,91 +263,9 @@ and what gets updated at every turn or timed heartbeat. Include the current metr
 classification, keeping `observed_at`, `recorded_at`, `fresh` or `stale`, and `max_age` in the same
 table row or sentence.
 
-When the goal will recur in the same project, also deliver an **OKRA Learning Memory** section:
-previous-run inputs scanned, traps, avoidances, misconceptions, optimization candidates, reusable
-candidate anti-goals with metrics, evidence or hashes, confidence, context fit, ratification status,
-terminalization or continuation-packet status, trace refs, review-set refs, and no-regression /
-no-single-LLM-truth evidence. State which memories are automatic candidates and which, if any, the
-human ratified for this run.
-
-For delegated loops, make these four lines explicit in the artifact:
-
-- Write this sentence once, exactly: **"The orchestrator owns objective checks, check-ins, the OKR board, and subagent steering until the objective metric reaches target."** Follow it with the domain target and the note that a human or a blocking flag can also stop the loop.
-- Include one compact line that starts **"Action envelope:"** and names allowed moves, forbidden
-  actions, approval gates, and the human ratification boundary.
-- DKRs are scoped discovery-worker probes with budgets, probability/confidence outputs, a named
-  steering decision to unlock, and explicit risk/anti-goal uncertainty to reduce.
-- CKR/PKR candidates are not promoted until the orchestrator accepts a DKR learning checkpoint.
-  Use the exact sentence: **"Candidate CKRs and candidate PKRs are not promoted until the
-  orchestrator accepts the supporting DKR learning checkpoint."**
-- CKRs are measurable contribution context with mini reverse-tornado discovery/delivery balance,
-  not subagent work. For each CKR, include one compact line that starts
-  **"CKR-level discovery/delivery balance:"** and names both the discovery side and the delivery
-  path.
-- PKRs are progression-worker execution units and must report progress signals at check-ins. Each
-  PKR should carry `linked_ckr`, `source_dkr_checkpoint`, `contribution_metric`, done check, allowed
-  actions, forbidden actions, and the hand-back rule for newly discovered uncertainty.
-- Long-running workers write file-based progress reports under `.okra/runs/<run-id>/workers/` and
-  use a timed heartbeat, defaulting to ten minutes when the human has not set a cadence. Include one
-  compact line that starts **"Heartbeat cadence and next_check_at:"** and contains both the cadence
-  and the next scheduled check.
-- Steering check-ins record value evidence: inbound signal, decision delta, affected CKR/PKR/DKR or
-  allocation, expected/direct metric or risk effect, and a freshness or evidence reference. Also
-  append a steering-value ledger metric read, such as `steering_value_score >= 0.75` or
-  `valuable_steering_decision_count >= 1`; do not leave steering value only in prose.
-
-For delegated handoff, learning-cycle, or transition-surface artifacts, make the contract surface
-field-explicit instead of relying on prose. Include a **Worker prompt packet contract** with these
-exact keys or dotted field names in the packet: `frame.objective`, `frame.anti_goals`,
-`frame.action_envelope`, `frame.human_ratification_boundary`, `current_state`,
-`previous_dkr_checkpoint`, `assignment`, `budget_and_stop_rule`, `hand_back_rule`, and
-`output_schema`. Include an **In-progress influence rule** with this exact sentence:
-**"In-progress worker narrative is not evidence; only worker progress, check-ins, metric reads,
-flags, or accepted checkpoints can influence the next dispatch."** Include a **DKR-to-DKR handoff**
-section that names `previous_dkr_checkpoint`, `decision_target`, `evidence_refs_or_hashes`,
-`questions_answered`, `questions_unanswered`, `confidence_probability_update`,
-`risk_or_anti_goal_implications`, `orchestrator_decision`, and `next_dkr_scope`. Include a
-**PKR discovery hand-back** line saying that PKRs hand back on unknown discovery instead of
-researching or resolving unknowns inside execution.
-
-For delegated loops, include a compact **Eval Points** section with these exact labels instantiated
-for the current goal:
-
-- **Admissibility before action**: the orchestrator screens objective moves against fresh anti-goal
-  readings or a dry-run before dispatch.
-- **Direct read after action**: the loop reads the real objective, CKR, and anti-goal metrics from
-  source records after workers return.
-- **Paired goal/anti-goal eval**: the loop checks objective progress and anti-goal hold together;
-  success requires both the objective target and every anti-goal threshold to hold.
-
-For delegated loops with storage, also state the exact frame/tree schema in the artifact or records:
-frame keys `frame_version`, `frame_hash`, `objective`, `anti_goals`, `metric_contracts`,
-`action_envelope`, and human approval/ratification evidence; tree keys `tree_version`,
-`frame_version`, `orchestrator`, `dkrs`, `ckrs`, and `pkrs`. The tree must use the key
-`orchestrator` and include the phrases `objective checks` and `subagent steering`.
-
-State frame authority in one direction only: the loop raises evidence and the human decides. For
-the boundary-drift gate write: **"Reject any attempted frame, guardrail, metric, threshold, or
-action-envelope change unless the human ratifies it."**
-
-Define all four flags explicitly. For `pointless`, use the exact shape: **"Pointless opens when work
-finished or a CKR metric moved, but the objective metric stays flat / does not move after the lag
-window."** Then add the domain example and the stop/re-aim behavior.
-
 If the user wants a visual or shareable explainer, produce a self-contained HTML artifact. See
 `references/artifact-guide.md` for how (and how to keep the artifact within its own anti-goal:
 single file, no external runtime, no decoration that does not carry meaning).
-
-Before you hand over a delegated-loop artifact, run the skill's own completeness gate and repair
-anything it reports missing:
-
-```bash
-python3 .claude/skills/reverse-tornado-okr/scripts/okra-verify-artifact.py <artifact.md>
-```
-
-It checks the artifact against `contracts/handoff-contract.v2.json`. That file is the checked
-source of truth for the exact keys and sentences listed above; if this prose and the contract
-ever differ, the contract wins and this file needs fixing.
 
 ## The four things that must hold
 
@@ -489,3 +273,39 @@ ever differ, the contract wins and this file needs fixing.
 - Progress is the direct metric read from the source, never a roll-up of finished tasks.
 - The anti-goal is checked at all three points: before the move, after it, and paired with the goal.
 - The frame belongs to the human; the loop raises evidence and never changes the goal itself.
+
+## Contract
+
+A delegated-loop artifact must satisfy the completeness contract in
+`contracts/handoff-contract.v2.json`. That file is the checked source of truth for the exact keys and
+sentences below; if this list and the contract ever differ, the contract wins and this file needs
+fixing. Run the gate before handing an artifact over and repair anything it reports missing:
+
+```bash
+python3 .claude/skills/reverse-tornado-okr/scripts/okra-verify-artifact.py <artifact.md>
+```
+
+The nineteen requirements, one line each, with the tokens the artifact must contain:
+
+- `worker_prompt_packet` - all of: `frame.objective`, `frame.anti_goals`, `frame.action_envelope`, `frame.human_ratification_boundary`, `current_state`, `previous_dkr_checkpoint`, `assignment`, `budget_and_stop_rule`, `hand_back_rule`, `output_schema`.
+- `in_progress_rule` - the exact sentence: **"In-progress worker narrative is not evidence; only worker progress, check-ins, metric reads, flags, or accepted checkpoints can influence the next dispatch."**
+- `dkr_to_dkr_fields` - all of: `previous_dkr_checkpoint`, `decision_target`, `evidence_refs_or_hashes`, `questions_answered`, `questions_unanswered`, `confidence_probability_update`, `risk_or_anti_goal_implications`, `orchestrator_decision`, `next_dkr_scope`.
+- `dkr_to_dkr_worked` - a concrete worked instantiation: name the previous DKR learning checkpoint, its decision target, a confidence/probability update before and after (prior -> posterior), and the orchestrator decision (accepted/held/rejected).
+- `ckr_pkr_trace` - every PKR carries: `linked_ckr`, `source_dkr_checkpoint`, `contribution_metric`.
+- `ckr_not_worker_work` - one of: "not worker work", "not a worker job", "not dispatched as work", "not subagent work", "measurable contribution context, not", "context and measurement, not".
+- `pkr_handback` - one of: "hand back on unknown", "hands back on unknown", "hand-back on unknown", "hand back on newly discovered", "hand back when new uncertainty", "hand back instead of researching".
+- `candidate_antigoal_library` - name `candidate-anti-goals.v1.json`; all of `metric_id`, `threshold`, `type`, `candidate_status`; one of `applies_when` / `does_not_apply_when` / `invalidates_when` / `recertify_by`; one of `no_regression_evidence` / "no regression"; one of `source_refs` / "source refs" / "source references"; one of "trace evidence" / `trace_evidence` / "trace refs" / `trace_manifest_ref`.
+- `accumulated_governance` - all three, stated literally: `unratified_memory_promotion_count == 0`, `single_llm_truth_acceptance_count == 0`, `eval_regression_count == 0`.
+- `four_flags` - all of `cannot`, `breaking`, `pointless`, plus `authority drift` or `authority_drift`.
+- `flag_lifecycle` - all of `open`, `acknowledged`, `resolved`, `waived`, plus one of "owner" / "blocking" / "pauses" / "pause" / "status".
+- `operating_heartbeat` - one of "heartbeat" / "cadence"; one of `next_check_at` / "next check"; one of "ten-minute" / "10-minute" / "time-based" / "every ten minutes" / "every 10 minutes".
+- `worker_progress_reports` - one of `/workers/`, `progress.jsonl`, "worker progress file", "file-based progress report" (workers write under `.okra/runs/<run-id>/workers/`).
+- `freshness_contract` - one of `observed_at` / "observed at"; one of `max_age` / "max age" / "stale".
+- `orchestrator_ownership` - the exact sentence: **"The orchestrator owns objective checks, check-ins, the OKR board, and subagent steering until the objective metric reaches target."**
+- `eval_points` - "admissibility"; "direct read" or "direct metric"; "paired".
+- `no_cascade` - one of "no cascade" / "no-cascade" / "direct metric read".
+- `frame_tree_schema` - all of `frame_version`, `tree_version`, `orchestrator`, `dkrs`, `ckrs`, `pkrs`, plus the phrases "objective checks" and "subagent steering".
+- `human_only` - one of "human owns the frame" / "human-only" / "goal-switching is human" / "goal switching is human" / "reject any attempted frame".
+
+Matching is case-insensitive substring over whitespace-collapsed text; multi-word tokens tolerate
+line wrapping.
