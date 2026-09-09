@@ -168,8 +168,8 @@ scripts/bin/harness-cli trace \
   --story US-004 \
   --agent codex \
   --outcome completed \
-  --actions "read docs/HARNESS.md,drafted TRACE_SPEC.md,updated HARNESS.md,ran rg checks" \
-  --read "docs/HARNESS.md,docs/HARNESS.md,scripts/schema/001-init.sql" \
+  --actions "read docs/HARNESS.md,drafted TRACE_SPEC.md,updated docs/HARNESS.md,ran rg checks" \
+  --read "docs/HARNESS.md,scripts/schema/001-init.sql" \
   --changed "docs/TRACE_SPEC.md,docs/HARNESS.md" \
   --friction "none"
 ```

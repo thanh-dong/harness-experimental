@@ -47,7 +47,7 @@ Status values:
 
 ## File Inventory
 
-Every tracked project file plus the Phase 2 input file is mapped to at least
+Every tracked project file is mapped to at least
 one Runtime Substrate responsibility.
 
 | File | Primary Responsibility | Secondary Responsibilities |
