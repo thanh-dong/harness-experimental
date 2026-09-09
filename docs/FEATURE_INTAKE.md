@@ -4,6 +4,14 @@ Every implementation prompt enters the intake gate before code changes. A new
 project spec also enters through this gate before it becomes product docs,
 stories, or implementation work.
 
+The gate is for change. A request that changes no tracked file and records no
+harness state — a question, an explanation, a report, an audit, a review, a
+status check — skips intake, story packets, diagrams, and traces; answer it
+directly. The gate starts at the moment the answer would change a file or
+record state, for example when a review turns into "apply the fixes". Running
+the full package on a read-only request is itself harness friction; record it
+with `scripts/bin/harness-cli backlog add`.
+
 The human does not need to classify risk. The harness does.
 
 The gate wording ships in two flavors with one owner (this repo): the **bash
@@ -52,6 +60,7 @@ lane.
 
 | Type | Use when | Typical artifact |
 | --- | --- | --- |
+| Inquiry / report | Answering a question, explaining code, or producing a report, audit, or review that changes nothing | None — no intake, no packet, no trace; answer directly |
 | New spec | Turning a user-provided project spec into harness-ready docs | Product docs, candidate epics, decisions |
 | Spec slice | Implementing selected behavior from an accepted spec | Story packet |
 | Change request | Changing, fixing, or refining accepted behavior | Story packet or direct patch |
@@ -181,7 +190,9 @@ the recorded signal is the machine-mineable subset.
 
 **Done gate (normal and high-risk).** A story is not done until its
 `implementation-notes.html` exists in the story packet folder and reflects the
-work as shipped. Before declaring done:
+work as shipped. Before reporting progress or done, check each claim against a
+tool result from this session; report only work you can point to evidence for,
+and say plainly what was skipped or failed. Before declaring done:
 
 - The file exists in the packet folder (never the repo root) and every section
   matches reality — fix any section that no longer does before continuing.
@@ -234,7 +245,8 @@ diagram file's structure; add it to the story's `--verify` command.
 **Done gate (normal and high-risk).** A story is not done until every required
 diagram exists, passes `scripts/check-diagrams.sh`, is `reviewed`, and matches
 the shipped code. A missing or `stale` required diagram is an incomplete story,
-exactly like a missing `implementation-notes.html`.
+exactly like a missing `implementation-notes.html`. The evidence rule from the
+implementation-notes done gate applies here too.
 
 ## Impact Analysis
 

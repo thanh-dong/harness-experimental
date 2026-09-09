@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Implementation notes — US-039 Prompt-audit remediation and model fit</title>
+<style>
+  body { font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2430; max-width: 860px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.4rem; border-bottom: 2px solid #e3e6ec; padding-bottom: .4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; color: #2c3550; }
+  h3 { font-size: .98rem; margin-top: 1.4rem; color: #2c3550; }
+  code { background: #f1f3f7; padding: .1em .35em; border-radius: 4px; font-size: .9em; }
+  pre { background: #f6f8fa; border: 1px solid #e3e6ec; border-radius: 6px; padding: .8rem 1rem; overflow-x: auto; font-size: .85em; }
+  table { border-collapse: collapse; width: 100%; margin: .8rem 0; }
+  th, td { border: 1px solid #dadfe8; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #f1f3f7; }
+  .signal { display: inline-block; font-size: .75em; font-weight: 600; padding: .1em .5em; border-radius: 999px; background: #e8f0fe; color: #1a56db; margin-right: .4em; }
+</style>
+</head>
+<body>
+<h1>Implementation notes — US-039 Prompt-audit remediation and model fit for Opus 5 / Fable 5.1</h1>
+<p>
+Story: <code>docs/stories/epics/E07-prompt-audit-remediation/US-039-prompt-audit-remediation/US-039-prompt-audit-remediation.md</code> ·
+Decision: <code>docs/decisions/0013-keep-verification-steps.md</code> ·
+Intake: <code>01M227KVAS6T3HC9751Z0ZCJ0F</code> (lane normal; flags: existing behavior, weak proof, multi-domain) ·
+Diagrams: <code>diagrams/D3-verify-and-lint-flow.md</code> ·
+Evidence: <code>evidence/README.md</code>
+</p>
+<p>
+The work came from a <code>/claude-api prompt-audit</code> run on 2026-09-07 that found
+31 problems in the harness's model-facing text (12 high, 11 medium, 8 flag-only).
+It ran as eight tasks on the branch <code>chore/prompt-audit-remediation</code>, each
+its own commit with an independent review round. The task plan is in
+<code>plan.md</code> next to this file.
+</p>
+
+<h2><span class="signal">design decision</span> Design decisions</h2>
+
+<h3>The contract file wins over skill prose, and a lint enforces it</h3>
+<p>
+The OKR skill kept its definition of a complete artifact in two places: the
+machine-readable <code>contracts/handoff-contract.v*.json</code> and the human prose in
+<code>SKILL.md</code>. They had drifted, so the verifier failed on a real artifact that
+obeyed the skill. The rule we settled on is that the contract file is the single
+source of truth, the skill prose must carry the contract's exact sentences, and
+<code>scripts/lint-skills.sh</code> fails when the prose stops carrying them. That turns
+"the skill and the checker agree" from a hand check into a build check.
+</p>
+
+<h3>Two extra rows in CONTEXT_RULES.md, so the installer's claim is true</h3>
+<p>
+The one Harness reading block now shared by <code>AGENTS.md</code> and both installers
+says the lane-dependent docs are prescribed by <code>docs/CONTEXT_RULES.md</code>, and it
+names <code>docs/TOOL_REGISTRY.md</code> and <code>docs/GOAL_LOOP.md</code>. Neither document
+appeared in <code>docs/CONTEXT_RULES.md</code>. Two ways out: shorten the reading block, or
+make <code>CONTEXT_RULES.md</code> match it. We added the two rows, because the reading
+block is the text three files must agree on and the lane table is the place a
+reader looks up "what do I read in this lane".
+</p>
+
+<h3>Variant B adopted: the story's criterion is verifier completeness</h3>
+<p>
+Task 6 A/B-tested two versions of <code>SKILL.md</code> by giving each to a blind Fable
+writer and scoring the artifact with the verifier. The brief's written rule was a
+conjunction — adopt B only if it satisfies every requirement A does <em>and</em> is not
+longer — and the literal reading returned "keep A" on a 29-word artifact
+difference. The controller overrode it and adopted B. The reason: B is a strict
+superset on completeness (18/19 against 16/19), and a 0.55% gap between two
+artifacts written independently by two agents is writer noise, not a measured
+verbosity cost. The length clause was meant to catch over-elaboration, which did
+not happen.
+</p>
+
+<h3>Keep the deterministic verification steps under Fable 5.1</h3>
+<p>
+A stronger model is a reason to trust a plan more, not a reason to stop checking
+the result. The verification scaffolding (lints, <code>story verify</code>, the independent
+check on high-risk work) stays as written; recorded as
+<code>docs/decisions/0013-keep-verification-steps.md</code>.
+</p>
+
+<h3>Rejected alternatives</h3>
+<table>
+<tr><th>Alternative</th><th>Why it was rejected</th></tr>
+<tr><td>Loosen the verifier so the fixture passes</td><td>That hides the drift instead of fixing it. We fixed the contract tokens and the skill prose, and never edited the fixture to make a check pass — the one exception was renaming three governance names after the skill itself renamed them.</td></tr>
+<tr><td>Make the three Harness reading blocks byte-identical by editing the paragraph text</td><td>The brief said to keep those paragraphs. The one legitimate difference is the macOS/Linux-vs-Windows path, so the lint normalizes that clause away instead. The texts are provably equal modulo the platform split.</td></tr>
+<tr><td>Strip every <code>.exe</code> before comparing the reading blocks</td><td>Too broad: an unrelated <code>.exe</code> mention would then be invisible to the lint. The check drops the whole platform clause instead, so any other <code>.exe</code> still shows up as a real difference.</td></tr>
+<tr><td>Keep the OKR skill's per-PKR allowed/forbidden action lists</td><td>Variant B narrows them to the frame level. The verifier scored B higher and the lists were the most prescriptive part of the prose. Noted below as an open question.</td></tr>
+</table>
+
+<h2><span class="signal">deviation</span> Deviations</h2>
+
+<h3>Lane ruled normal, not high-risk</h3>
+<p>
+Three risk flags and no hard gate. The installer shim wording was treated as
+existing behavior rather than a public contract, which kept the story in the
+normal lane. If that call was wrong, the work should have had a human design
+review. It was mitigated by an agent review of D3 and a review round on every
+task commit.
+</p>
+
+<h3>The fixture was revised once, after the skill changed</h3>
+<p>
+The fixture was written first, on purpose, against the pre-change skill, so the
+baseline run would fail honestly (16 of 20). The skill then renamed three
+governance fields. The fixture was revised exactly once, limited to those three
+names, so it kept describing the same artifact under the new vocabulary rather
+than being tuned to pass.
+</p>
+
+<h3>Wording changes outside the literal brief</h3>
+<ul>
+<li><code>learning-memory.md</code>: "scored blindbox eval" was reworded. It was grader
+vocabulary leaking into shipped instructions, which is exactly what the new lint
+assertion 3 forbids, but the file was not in the task's declared file list.</li>
+<li>Task 3's regex for the generated-view check makes the leading backtick
+optional. The brief's regex text and its own forced-failure string contradicted
+each other; the optional backtick satisfies both.</li>
+<li>Task 7 changed a stale "8/8" in <code>CLAUDE.md</code> to "a full score", because the
+score became 10/10 in this same story. Task 8 fixed the matching "8/8" in the
+story's own Validation table for the same reason.</li>
+<li>Task 4 fixed two <code>PHASE2.md</code> mentions the brief did not name, because leaving
+them would have failed the brief's own verification grep.</li>
+</ul>
+
+<h3>What was deliberately not changed</h3>
+<p>
+Controller-owned planning artifacts (<code>plan.md</code>, the task briefs) still quote the
+old strings <code>PHASE2.md</code> and <code>handoff-contract.v1.json</code>, because they describe
+what the work was told to do. <code>CHANGELOG.md</code> keeps <code>handoff-contract.v1.json</code>
+in the July 2026 entry, which is a correct historical record.
+</p>
+
+<h2><span class="signal">tradeoff</span> Tradeoffs &amp; accepted limits</h2>
+<table>
+<tr><th>Choice</th><th>Accepted limit</th></tr>
+<tr><td>One writer per A/B arm (n = 1)</td><td>The 16/19 vs 18/19 gap is a single sample per variant. Writer skill and phrasing are not separated from skill-text quality. Adopting B on this evidence is a bet worth revisiting if more samples are ever run.</td></tr>
+<tr><td>Adopt variant B, which collapses the numbered steps</td><td>The skill lost prescriptive detail — most visibly the per-PKR allowed/forbidden action lists, now stated at the frame level. The verifier says nothing was lost that it measures; it cannot see instruction quality it does not test.</td></tr>
+<tr><td><code>lint-skills.sh</code> assertion 2 guards only the sentences the contract lists</td><td>Today the contract yields exactly two sentence tokens, so the check guards two sentences. It grows automatically with the contract, but right now it is thin.</td></tr>
+<tr><td><code>lint-skills.sh</code> hardcodes one skill name</td><td><code>SKILL_NAME</code> is a single variable. <code>reverse-tornado-okr</code> is the only skill mirrored into both trees today, so a loop would be configurability nobody asked for. A second mirrored skill means the script needs a loop.</td></tr>
+<tr><td>The reading-block lint compares normalized text, not raw text</td><td>Anything the normalizer drops is invisible to the check. It drops exactly one clause, the platform path alternative.</td></tr>
+<tr><td>The verifier is not run by any script</td><td><code>okra-verify-artifact.py</code> stays a manual step. The fixture and its expected output now live in <code>evidence/</code>, so a future task could make it a hard gate, but nothing runs it automatically yet.</td></tr>
+</table>
+
+<h2><span class="signal">open question</span> Open questions</h2>
+<ol>
+<li><strong>Should artifact length ever be a decision criterion?</strong> It decided nothing
+here — a 0.55% gap was ruled noise — but the rule as written would have kept the
+worse variant. <em>Recommendation:</em> drop raw artifact length from the adopt/reject
+rule and keep skill-text length as a separate, reported number. If a length guard
+is wanted, make it a threshold wide enough to mean something, for example 10%.</li>
+<li><strong>Does the parallel-launch sentence in <code>CLAUDE.md</code> stay?</strong> It restates what
+Claude Code's own tool prompt already says, so for Claude it is one wasted clause.
+Codex reads the same file and gets no such prompt. <em>Recommendation:</em> keep it.
+One clause is cheap, and the file is shared by two runtimes.</li>
+<li><strong>Should the per-PKR allowed/forbidden action lists come back?</strong> Variant B
+narrowed them to the frame level and the verifier did not object. <em>Recommendation:</em>
+leave them out for now and re-check on the next real OKR run. If a worker acts
+outside its envelope in practice, that is the signal to restore them per PKR.</li>
+<li><strong>Where do the seven deleted self-review rules live?</strong> <code>coherence_review</code>
+and <code>coherence_review_source</code> were removed from the contract; the verifier never
+read them. Every rule is still enforced by a requirement, but the written rules
+themselves are gone. <em>Recommendation:</em> no action; reopen only if a future artifact
+fails in a way the requirements do not explain.</li>
+<li><strong>Should <code>dkr_to_dkr_worked</code> be reworded?</strong> Both A/B artifacts missed it, so
+neither variant's prose makes that phrasing reliable. <em>Recommendation:</em> treat it as
+a skill gap and fix the wording in a follow-up, not as a verifier bug.</li>
+</ol>
+
+<h2>Verification summary per task</h2>
+<table>
+<tr><th>Task</th><th>What it did</th><th>Commit(s)</th><th>Verification result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Baseline fixture; contract v1 → v2; skill wiring; <code>.codex</code> mirror</td>
+  <td><code>b5312c9</code></td>
+  <td>Baseline 16/20 <code>complete: false</code> → 19/19 <code>complete: true</code>, exit 0. <code>diff -r</code> of the two skill trees empty. Contract JSON parses. Forbidden-term grep clean. <code>verify-harness.sh</code> 8/8.</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>One Harness reading block in <code>AGENTS.md</code> and both installers; <code>verify-harness.sh</code> check 9</td>
+  <td><code>25f45be</code>, <code>139b776</code></td>
+  <td><code>verify-harness.sh</code> 9/9. Forced-drift run fails with the differing pair named. <code>test-install-contract.sh</code> passes.</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>MCP <code>session-context.md</code> register and wording; <code>lint-mcp-templates.sh</code> assertion 3</td>
+  <td><code>f5a064d</code></td>
+  <td><code>lint-mcp-templates.sh</code> clean. Forced-failure copy in <code>/tmp</code> is caught. <code>verify-harness.sh</code> still passes.</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Stale-fact sweep across nine docs; <code>PHASE2.md</code>–<code>PHASE5.md</code> removed; five backlog rows</td>
+  <td><code>0112fca</code>, <code>7977bb6</code>, <code>0760d73</code>, <code>9cf32e6</code></td>
+  <td><code>grep -rn 'PHASE[2-5]\.md'</code> leaves only the intended replacement text and this story's own planning files. <code>verify-harness.sh</code> passes.</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>De-cruft OKR prose (grader vocabulary, <code>ownership</code> archaeology); new <code>scripts/lint-skills.sh</code>; <code>verify-harness.sh</code> check 10</td>
+  <td><code>d3968e1</code></td>
+  <td><code>lint-skills.sh</code> passes all three assertions. Forced divergence caught on each assertion. Task 1 fixture still 19/19. <code>verify-harness.sh</code> 10/10.</td>
+</tr>
+<tr>
+  <td>6</td>
+  <td>A/B the prescriptive and de-prescribed skill under the verifier; adopt B</td>
+  <td><code>a7f74b4</code></td>
+  <td>A 16/19, B 18/19 (strict superset). Skill words 5048 → 3389. After adoption: <code>lint-skills.sh</code> pass, fixture 19/19, <code>verify-harness.sh</code> 10/10, mirror <code>diff -r</code> empty.</td>
+</tr>
+<tr>
+  <td>7</td>
+  <td>Model-fit guidance in <code>CLAUDE.md</code> (subagents, scope and tests, memory pointer, evidence in the done gates); decision 0013</td>
+  <td><code>7260139</code>, <code>5eafbf6</code></td>
+  <td><code>verify-harness.sh</code> 10/10. Decision 0013 accepted in <code>query decisions</code>. <code>lint-mcp-templates.sh</code> clean. <code>CLAUDE.md</code> growth +1844 bytes, under the 2500 budget. No "8/8" left.</td>
+</tr>
+<tr>
+  <td>8</td>
+  <td>This file, <code>evidence/</code>, D3 correction, story Evidence and Harness Delta, backlog row, two signals</td>
+  <td>this commit</td>
+  <td><code>check-diagrams.sh</code> 11 file(s) ok. <code>verify-harness.sh</code> 10/10. <code>lint-skills.sh</code> and <code>lint-mcp-templates.sh</code> clean. Fixture 19/19 from its new home in <code>evidence/</code>.</td>
+</tr>
+</table>
+
+<h2>Final whole-branch review and fix wave</h2>
+<p>A Fable reviewer read the whole branch (afda1a2..c508f05) against the story. It found two Important items the per-task reviews could not see: <code>docs/SETUP.md</code> still said "expect 8/8", and the MCP flavor <code>docs/templates/mcp/session-context.md</code> still carried the old seven-document reading list while the bash flavor had moved to "FEATURE_INTAKE.md plus <code>query matrix</code>, then CONTEXT_RULES.md per lane". One fix wave (commits 4cfb0c9 and ee0d36b) addressed those plus: the CLAUDE.md lane-dependent list no longer names CONTEXT_RULES.md (and the installer's CLAUDE shim copy was edited to match); README.md and SETUP.md reading pointers unified; HARNESS.md done definition names proof flags instead of matrix entries; the OKR skill's Output section now points at <code>## Contract</code>, Step 2b regained the loop-termination sentence in prose, the <code>dkr_to_dkr_worked</code> line lists the six token groups verbatim, and contract <code>source</code> strings cite the Contract section; HARNESS_COMPONENTS.md says "independent review"; US-027's notes cite US-024 instead of PHASE5.md. Ruling: no numeric check count anywhere in prose ("expect a full score"), so the number cannot go stale again. Scoped re-review: all eight findings addressed. Final state: verify-harness 10/10, test-install-contract 22/22, lint-skills and lint-mcp-templates clean, check-diagrams 11 ok, fixture 19/19, story verify pass, entropy score 3/100.</p>
+<p>Two pre-existing issues surfaced by the reviews were recorded as backlog items rather than fixed: the installer manifest does not ship the new lint scripts or the skill trees, and the intake-griller skill keeps its own seven-item source list.</p>
+</body>
+</html>

@@ -240,7 +240,10 @@ items; `low` is not a valid lane.
 
 ## Task Loop
 
-For every task:
+Read-only requests — questions, explanations, reports, audits, reviews, status
+checks — skip this loop; answer them directly (`docs/FEATURE_INTAKE.md`,
+"The gate is for change"). For every task that changes a tracked file or
+records harness state:
 
 1. Classify the request with `docs/FEATURE_INTAKE.md`.
 2. Record the classification with `scripts/bin/harness-cli intake`.
@@ -382,7 +385,8 @@ Agents should ask for human confirmation before:
 A task is done only when:
 
 - The requested change is completed or the blocker is documented.
-- Relevant docs, stories, and test matrix entries remain current.
+- Relevant docs and stories remain current, and story proof flags are current
+  through `story update` (the matrix view is regenerated from them).
 - Every change diagram the lane and flags require exists under
   `<packet>/diagrams/`, passes `bash scripts/check-diagrams.sh`, is
   `reviewed`, and matches shipped code (`docs/DIAGRAMS.md`).

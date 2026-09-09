@@ -13,6 +13,10 @@ Use this skill as the pre-run discussion gate for this repository. The first out
 
 Do not jump from user intent directly to implementation.
 
+Do not run this skill for a question, explanation, report, audit, or review that
+changes nothing; answer those directly. The gate and its artifacts are for
+requests that will change a tracked file or record harness state.
+
 Do not treat Harness artifact creation as a substitute for understanding the user's idea. The discussion is successful only when the user can see their intent reflected back clearly enough to correct or approve it.
 
 Do not start implementation or invoke a long-running agent execution unless the user explicitly asks to execute after the intake artifacts are ready. This skill owns the discussion and planning work before implementation.
@@ -105,7 +109,7 @@ If any field is weak, ask the next highest-leverage question.
 3. **Record intake**
    - Classify the request using `docs/FEATURE_INTAKE.md`.
    - Record the durable intake row with `scripts/bin/harness-cli intake`.
-   - Use `harness_improvement` when the work changes how humans and agents collaborate.
+   - Use `--type harness_improvement` when the work changes how humans and agents collaborate.
 
 4. **Map docs and stories**
    - Identify existing product docs and story packets that already cover the request.

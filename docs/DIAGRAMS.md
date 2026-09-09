@@ -181,7 +181,7 @@ the end. Each is a named checkpoint where the human already has the last word.
 | --- | --- | --- | --- |
 | **Intake checkpoint** — before the lane, story, and scope freeze | D1, D6 | Human | "This is the scope I am approving." D1 coverage below half or an unexpected dependent re-opens the restated work item. |
 | **Design review** — after the packet is written, before implementation code | D2, D5, D7 | Human (high-risk: mandatory; normal: human or a second agent) | "This direction and these data / boundary changes are acceptable." This is where `docs/HARNESS.md`'s *changing architecture direction* and the data-loss / external-provider hard gates are confirmed. |
-| **Design review** — same checkpoint | D3, D4 | Human or a second agent | "This behavior is what the product contract means." The reviewer names any arrow or transition that needs a test. |
+| **Design review** — same checkpoint | D3, D4 | Human on high-risk; human or a second agent on normal | "This behavior is what the product contract means." The reviewer names any arrow or transition that needs a test. |
 | **Done gate** — before `story update --status implemented` | every diagram in the packet | The independent check already required for high-risk (`verify`, CI, or a second reviewer) | "The diagram matches shipped code." Any mismatch flips the file to `stale` and blocks done. |
 
 Recording a review:

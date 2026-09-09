@@ -4,21 +4,21 @@ The `trace` table records what happened during a Harness task. This document
 defines the expected depth and format for each field so traces are useful for
 review, benchmark scoring, failure attribution, and future harness evolution.
 
-The current schema lives in `scripts/schema/001-init.sql` under the `trace`
-table. The schema is not changed by Phase 2.
+The trace schema is `scripts/schema/001-init.sql` as amended by
+`scripts/schema/007-ulid-ids.sql`.
 
 ## Field Reference
 
 | Field | Type | Required | Format | Example |
 | --- | --- | --- | --- | --- |
-| `id` | INTEGER | Automatic | SQLite autoincrement primary key. Do not set manually. | `42` |
+| `id` | TEXT (ULID) | Automatic | ULID assigned by the CLI (schema 007). Do not set manually. | `01JCEXAMPLEULID000000000` |
 | `created_at` | TEXT | Automatic | SQLite `datetime('now')`. Do not set manually. | `2026-05-27 09:24:37` |
 | `task_summary` | TEXT | Yes | One sentence, at least 10 characters, naming the outcome or attempted outcome. | `Completed Phase 2 docs-only observability and taxonomy specification` |
-| `intake_id` | INTEGER | Standard+ when an intake was recorded | Integer id from the related `intake` row. | `36` |
+| `intake_id` | TEXT (ULID) | Standard+ when an intake was recorded | ULID of the related `intake` row. | `01JCEXAMPLEULID000000000` |
 | `story_id` | TEXT | Standard+ when work maps to one story | Story id from the `story` table. Use the main story when one trace covers several; list the rest in `notes`. | `US-004` |
 | `agent` | TEXT | Optional for minimal; Standard+ expected | Short agent/tool name. | `codex` |
-| `actions_taken` | TEXT | Standard+ | JSON array text. With the current CLI, pass a comma-separated list and the CLI stores JSON text. | `["read PHASE2.md","drafted TRACE_SPEC.md","updated HARNESS.md"]` |
-| `files_read` | TEXT | Standard+ | JSON array text of paths or command names. With the current CLI, pass a comma-separated list. | `["PHASE2.md","docs/HARNESS.md","scripts/bin/harness-cli query matrix"]` |
+| `actions_taken` | TEXT | Standard+ | JSON array text. With the current CLI, pass a comma-separated list and the CLI stores JSON text. | `["read docs/HARNESS.md","drafted TRACE_SPEC.md","updated HARNESS.md"]` |
+| `files_read` | TEXT | Standard+ | JSON array text of paths or command names. With the current CLI, pass a comma-separated list. | `["docs/HARNESS.md","scripts/bin/harness-cli query matrix"]` |
 | `files_changed` | TEXT | Standard+ | JSON array text of changed file paths. With the current CLI, pass a comma-separated list; omit only when no files changed. | `["docs/TRACE_SPEC.md","docs/HARNESS.md"]` |
 | `decisions_made` | TEXT | Detailed | JSON array text of decision strings. Include scope decisions, validation choices, and explicit non-goals. | `["Kept Phase 2 docs-only; installer propagation remains out of scope"]` |
 | `errors` | TEXT | Standard+ if errors occurred; Detailed always | JSON array text of error or blocker strings. Until the CLI supports empty arrays directly, use `none` when a detailed trace needs explicit no-error evidence. | `["git diff --check failed before whitespace fix"]` |
@@ -168,8 +168,8 @@ scripts/bin/harness-cli trace \
   --story US-004 \
   --agent codex \
   --outcome completed \
-  --actions "read PHASE2.md,drafted TRACE_SPEC.md,updated HARNESS.md,ran rg checks" \
-  --read "PHASE2.md,docs/HARNESS.md,scripts/schema/001-init.sql" \
+  --actions "read docs/HARNESS.md,drafted TRACE_SPEC.md,updated docs/HARNESS.md,ran rg checks" \
+  --read "docs/HARNESS.md,scripts/schema/001-init.sql" \
   --changed "docs/TRACE_SPEC.md,docs/HARNESS.md" \
   --friction "none"
 ```

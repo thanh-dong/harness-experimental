@@ -16,7 +16,6 @@ trace quality tiers in `docs/TRACE_SPEC.md`.
 
 ## Relevant Product Docs
 
-- `PHASE3.md`
 - `docs/TRACE_SPEC.md`
 - `docs/HARNESS_MATURITY.md`
 - `docs/HARNESS_COMPONENTS.md`

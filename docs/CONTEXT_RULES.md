@@ -19,6 +19,8 @@ Read to classify the request, find the affected surface, and choose a lane.
 | `scripts/bin/harness-cli query matrix` | Must | Must | Must |
 | `README.md` | Should | Must | Must |
 | `docs/HARNESS.md` | Should | Must | Must |
+| `docs/TOOL_REGISTRY.md` | Should before any step that could use an external tool | Must before any step that could use an external tool | Must |
+| `docs/GOAL_LOOP.md` | Skip | Should for new initiatives or metric-driven work | Must for new initiatives or metric-driven work |
 | `docs/ARCHITECTURE.md` | Skip | Should | Must |
 | Relevant `docs/product/*` | Skip if unrelated | Must if product behavior changes | Must |
 | Relevant `docs/stories/*` | Skip if unrelated | Must if a story exists | Must |
@@ -93,7 +95,7 @@ Read to leave useful evidence for the next agent and for benchmark scoring.
 
 | Trigger Condition | Action |
 | --- | --- |
-| Task touches database schema, durable records, or migrations | Read `docs/decisions/0004-sqlite-durable-layer.md`, `scripts/schema/`, and relevant CLI code before planning. |
+| Task touches database schema, durable records, or migrations | Read `docs/decisions/0009-event-log-source-of-truth.md` (supersedes 0004), `docs/EVENT_LOG.md`, `scripts/schema/`, and relevant CLI code before planning. |
 | Task touches CLI command behavior or installer distribution | Read `docs/decisions/0005-prebuilt-rust-harness-cli.md`, `scripts/README.md`, relevant `crates/harness-cli/*` code, CLI help output, and installer docs. |
 | Task touches auth, authorization, audit/security, data loss, or external providers | Treat as high-risk, read `docs/templates/high-risk-story/*`, and check prior decisions before implementation. |
 | Task changes public API shape, product behavior, or user-visible workflow | Read relevant `docs/product/*`, story packets, and validation expectations before editing. |
@@ -121,7 +123,7 @@ Budget rules:
 
 ## Additive Behavior
 
-These rules do not replace `AGENTS.md`. Agents should still read the stable
+These rules do not replace `AGENTS.md`. Agents must still read the stable
 entrypoint documents listed there before work. This document explains what to
 retrieve after that initial context, based on lane, phase, and trigger.
 

@@ -102,7 +102,9 @@ closed so future agents can compare expectation with result.
 
 ## Durable Layer
 
-The SQLite database and CLI (`scripts/bin/harness-cli`) that stores operational records
+The git-tracked, append-only event log at `.harness/events/`
+plus the CLI (`scripts/bin/harness-cli`) that writes it. `harness.db` is a
+rebuilt cache that stores those records
 (intakes, stories, decisions, backlog items, traces) as structured, queryable
 data. Policy docs describe how to work; the durable layer stores what happened.
 

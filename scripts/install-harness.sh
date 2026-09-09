@@ -267,21 +267,20 @@ agent_shim_block() {
 ## Harness
 
 This repo uses Harness. First-time setup (install + wire the capability tools):
-`docs/SETUP.md`. Before work, read:
+`docs/SETUP.md`. Before work, in every lane:
 
-- `README.md`
-- `docs/HARNESS.md`
-- `docs/FEATURE_INTAKE.md`
-- `docs/ARCHITECTURE.md`
-- `docs/CONTEXT_RULES.md`
-- `docs/TOOL_REGISTRY.md`
-- `docs/GOAL_LOOP.md`
-- `scripts/bin/harness-cli query matrix`
+- read `docs/FEATURE_INTAKE.md`
+- run `scripts/bin/harness-cli query matrix` on macOS/Linux, or `.\scripts\bin\harness-cli.exe query matrix` on Windows
 
-Use the Rust Harness CLI at `scripts/bin/harness-cli` as the main operational
-tool. Before a step that could use an external tool, run
-`scripts/bin/harness-cli query tools --capability <name> --status present` to
-see what is equipped; an absent capability is a clean skip.
+Then read the lane-dependent docs that `docs/CONTEXT_RULES.md` prescribes for
+your lane (`README.md`, `docs/HARNESS.md`, `docs/ARCHITECTURE.md`,
+`docs/TOOL_REGISTRY.md`, `docs/GOAL_LOOP.md`, product docs, stories, decisions).
+
+Use the Rust Harness CLI at `scripts/bin/harness-cli` on macOS/Linux or
+`scripts/bin/harness-cli.exe` on Windows as the main operational tool. Before a
+step that could use an external tool, run `scripts/bin/harness-cli query tools
+--capability <name> --status present` to see what is equipped; an absent
+capability is a clean skip.
 <!-- HARNESS:END -->
 EOF
 }
@@ -300,11 +299,14 @@ context-load time. Never wrap them in backticks; that disables the import.
 
 @docs/FEATURE_INTAKE.md
 
-Also run `scripts/bin/harness-cli query matrix` before starting work.
+Also run `scripts/bin/harness-cli query matrix` before starting work. The
+intake gate is for changes and new development; a question, report, audit, or
+review that changes nothing skips it and is answered directly.
 
 Lane-dependent context (`README.md`, `docs/HARNESS.md`, `docs/ARCHITECTURE.md`,
-`docs/CONTEXT_RULES.md`, product docs, stories, decisions) is intentionally not
-imported — read it per lane, as `docs/CONTEXT_RULES.md` prescribes.
+`docs/TOOL_REGISTRY.md`, `docs/GOAL_LOOP.md`, product docs, stories, decisions)
+is intentionally not imported — read it per lane, as `docs/CONTEXT_RULES.md`
+prescribes.
 <!-- HARNESS:END -->
 EOF
 }

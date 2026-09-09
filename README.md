@@ -7,7 +7,7 @@
 *The app is what users touch. The harness is what agents touch.*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
-[![Harness CLI](https://img.shields.io/badge/Harness%20CLI-v0.1.10-3b82f6.svg)](scripts/README.md)
+[![Harness CLI](https://img.shields.io/badge/Harness%20CLI-v0.1.23-3b82f6.svg)](scripts/README.md)
 [![Built in Rust](https://img.shields.io/badge/CLI-Rust-orange.svg)](crates/harness-cli)
 [![Platforms](https://img.shields.io/badge/Platforms-macOS%20%7C%20Linux%20%7C%20Windows-6366f1.svg)](#-installation)
 [![Agents](https://img.shields.io/badge/Agents-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20Cursor-8b5cf6.svg)](#-installation)
@@ -134,28 +134,13 @@ scripts/bin/harness-cli --version
 scripts/bin/harness-cli query matrix
 
 # 5. Read the entry points before changing code
-#    AGENTS.md, docs/HARNESS.md, docs/FEATURE_INTAKE.md, docs/GOAL_LOOP.md
+#    read docs/FEATURE_INTAKE.md, run query matrix, then the docs
+#    docs/CONTEXT_RULES.md prescribes for your lane
 ```
 
 On Windows the CLI is called as `.\scripts\bin\harness-cli.exe`.
 
 ### For Agents: Fresh Install Or Update
-
-> [!IMPORTANT]
-> **This fork is private.** The anonymous `curl … raw.githubusercontent.com … | bash`
-> one-liners return 404 without credentials. From a machine with `gh` auth, use the
-> authenticated flow instead — it is verified end-to-end:
->
-> ```bash
-> gh repo clone thanh-dong/harness-repository-cc /tmp/harness
-> gh release download "$(cat /tmp/harness/scripts/harness-cli-release-tag)" \
->   -R thanh-dong/harness-repository-cc -D /tmp/harness-dist
-> HARNESS_CLI_BASE_URL="file:///tmp/harness-dist" \
->   /tmp/harness/scripts/install-harness.sh --claude --yes            # fresh install
-> #  … --merge --refresh-agent-shim --claude --yes                    # update
-> ```
->
-> The curl one-liners below work as written once the repo is made public.
 
 The one-pass playbook for both paths is [`docs/SETUP.md`](docs/SETUP.md). Pick the
 branch that matches the target repo:

@@ -3,7 +3,32 @@
 ## Subagents
 
 Use Fable subagents (`model: "fable"` on the Agent tool) when you need more
-intelligence — e.g. hard debugging, architecture, or verification steps.
+intelligence — e.g. hard debugging, architecture, or an independent review.
+
+Delegate work that is independent and sizeable: a wide investigation across
+many files, or tracks that can truly run in parallel. Run checks you can run
+yourself — a test suite, `story verify`, `check-diagrams.sh` — instead of
+handing a two-command job to a subagent, because each subagent rebuilds
+context from zero and you then read its report on top, which for a small job
+costs more than doing it yourself. The independent check on high-risk work is
+the exception: there a second agent is the point, because your own word is
+what the gate does not accept. One subagent is enough for one modest job.
+
+Brief a subagent once with everything it needs, then commit to its result
+instead of redoing the work. When several agents are independent, launch them
+in one message and keep working while they run.
+
+## Scope and tests
+
+Keep the change to what the story or prompt asks for. When you notice a
+pre-existing bug or a nearby improvement, report it as a backlog item with
+`harness-cli backlog add` and name it in your final response, rather than
+fixing it in the same change, so the reviewer sees one intent per diff.
+Scratch checks and one-off scripts live outside the repository, for example
+under `/tmp`; delete any you added before you commit. Commit tests where the
+story's validation expectations ask for them or the neighboring files already
+keep tests for that kind of change, and size them like those files; a test
+file much larger than its neighbors is a sign the scope grew.
 
 ## Working Together Through The Event Log
 
@@ -35,14 +60,20 @@ Rules of engagement — every agent, every session:
   field resolve last-writer-wins; `harness-cli audit` lists them under
   *Concurrent LWW updates (causal audit)*. If a value you set was overwritten,
   re-apply it — the loser is still in the log.
+- **The log is also your memory.** A lesson from a story goes to
+  `harness-cli story signal add` and friction with the harness to
+  `harness-cli backlog add`, so it outlives the session. On normal and
+  high-risk work, run `harness-cli query signals` and `harness-cli query
+  backlog` at intake so you start from what earlier sessions learned; tiny
+  work skips them, as `docs/CONTEXT_RULES.md` prescribes.
 - **If the cache looks wrong**, run `harness-cli rebuild` (or delete
   `harness.db` and run any query — it auto-rebuilds from the log). Two rebuilds
   print the same dump hash; a mismatch means a corrupt log line.
 - **First time on a repo?** Fresh install → `docs/SETUP.md`. Upgrading a
   pre-event-log repo → `harness-cli migrate` then `harness-cli migrate-to-events`
   (`docs/EVENT_LOG.md`). Either way, finish with
-  `bash scripts/verify-harness.sh .` — 8/8 means the install works; anything
-  less, fix before writing state.
+  `bash scripts/verify-harness.sh .` — a full score means the install works;
+  anything less, fix before writing state.
 
 <!-- HARNESS:BEGIN -->
 ## Harness
@@ -56,9 +87,12 @@ context-load time. Never wrap them in backticks; that disables the import.
 
 @docs/FEATURE_INTAKE.md
 
-Also run `scripts/bin/harness-cli query matrix` before starting work.
+Also run `scripts/bin/harness-cli query matrix` before starting work. The
+intake gate is for changes and new development; a question, report, audit, or
+review that changes nothing skips it and is answered directly.
 
 Lane-dependent context (`README.md`, `docs/HARNESS.md`, `docs/ARCHITECTURE.md`,
-`docs/CONTEXT_RULES.md`, product docs, stories, decisions) is intentionally not
-imported — read it per lane, as `docs/CONTEXT_RULES.md` prescribes.
+`docs/TOOL_REGISTRY.md`, `docs/GOAL_LOOP.md`, product docs, stories, decisions)
+is intentionally not imported — read it per lane, as `docs/CONTEXT_RULES.md`
+prescribes.
 <!-- HARNESS:END -->

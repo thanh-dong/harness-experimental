@@ -12,3 +12,4 @@ Add decisions with `harness-cli decision add` (doc from `docs/templates/decision
 | 0010 | Shuttle consumption contract (E-shuttle-readiness) | accepted |  |
 | 0011 | CodeGraph replaces GitNexus as the code-graph impact provider | accepted | docs/decisions/0011-codegraph-impact-provider.md |
 | 0012-change-diagrams-as-review-artifacts | Change Diagrams As Separate Review Artifacts | accepted | docs/decisions/0012-change-diagrams-as-review-artifacts.md |
+| 0013 | Keep deterministic verification steps under Fable 5.1 | accepted | docs/decisions/0013-keep-verification-steps.md |

@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Lint the MCP-flavored context templates.
 #
-# Two assertions:
+# Three assertions:
 #   1. Every harness_* tool name referenced in docs/templates/mcp/*.md is
 #      defined as a mapping row in docs/templates/mcp/TOOL_MAPPING.md.
 #   2. Every mapping row's CLI command exists in `harness-cli --help` output
 #      (best-effort grep; skipped with a warning if the binary is unavailable).
+#   3. No generated view (docs/TEST_MATRIX.md, docs/HARNESS_BACKLOG.md,
+#      docs/decisions/README.md) is named as something an agent edits, updates,
+#      or adds rows to directly — those files are rewritten from the event log,
+#      never hand-edited.
 #
 # Exit non-zero on any failure. Additive, read-only.
 set -euo pipefail
@@ -67,6 +71,20 @@ else
       fail=1
     fi
   done <<<"$cmds"
+fi
+
+# --- Assertion 3: generated views aren't named as edit targets ----------------
+note "== Assertion 3: generated views aren't named as edit targets =="
+generated_edit_re='(TEST_MATRIX\.md|HARNESS_BACKLOG\.md|decisions/README\.md)`?[[:space:]]+(rows|updated|edit)'
+offenders="$(grep -rnE "$generated_edit_re" "$MCP_DIR" || true)"
+if [ -n "$offenders" ]; then
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    note "  FAIL  $line"
+    fail=1
+  done <<<"$offenders"
+else
+  note "  ok    no generated view named as an edit target"
 fi
 
 note ""
